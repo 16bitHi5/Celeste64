@@ -116,6 +116,17 @@ if (System.Runtime.InteropServices.Marshal.SizeOf(nativeHandsType) != 72)
     throw new Exception("The managed tracked-hands layout does not match the native bridge.");
 Console.WriteLine("Tracked-hands native layout check passed.");
 
+var momentum = new VrClimbMomentum();
+for (int i = 0; i < 20; i++) momentum.Sample(new Vector3(0, .1f, .2f), .02f);
+var fling = momentum.Release();
+if (fling.Y <= 0 || fling.Z <= 0 || fling.Z > 130 || new Vector2(fling.X, fling.Y).Length() > 110.001f)
+    throw new Exception("A hand pull must produce bounded momentum in the pull direction.");
+for (int i = 0; i < 100; i++) momentum.Sample(Vector3.Zero, .02f);
+if (momentum.Release().Length() > .01f) throw new Exception("Momentum should decay when the hands stop moving.");
+momentum.Sample(new Vector3(float.NaN, 0, 0), .02f);
+if (momentum.Release() != Vector3.Zero) throw new Exception("Invalid tracking samples must clear momentum.");
+Console.WriteLine("Hand pull momentum, limits, and stopping checks passed.");
+
 if (args.Contains("--audio-integration"))
 {
     Audio.Init();

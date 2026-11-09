@@ -24,7 +24,7 @@ internal sealed class VrHandRenderer : IDisposable
 		}
 	}
 
-	public void Render(ref RenderState state, Camera anchor, Vec3 referenceHeadPosition, XrBridge.Hands hands)
+	public void Render(ref RenderState state, Camera anchor, Vec3 referenceHeadPosition, Vec3 headWorldPosition, XrBridge.Hands hands, World world)
 	{
 		var baseState = state;
 		if (hands.LeftValid != 0) Draw(left, hands.Left);
@@ -33,6 +33,7 @@ internal sealed class VrHandRenderer : IDisposable
 		{
 			var handState = baseState;
 			handState.ModelMatrix = VrCamera.TrackedPose(anchor, pose.Position, pose.Rotation, referenceHeadPosition, 10);
+			handState.ModelMatrix.Translation = world.ConstrainVrHand(headWorldPosition, handState.ModelMatrix.Translation);
 			model.Render(ref handState);
 		}
 	}

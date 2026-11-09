@@ -1441,6 +1441,9 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	private int climbInputSign = 1;
 	private float tClimbCooldown = 0;
 	private readonly VrHandClimb vrHandClimb = new();
+	private readonly VrClimbMomentum vrClimbMomentum = new();
+	private ulong vrLastHandFrame;
+	private float vrClimbSampleElapsed;
 	private bool vrHandClimbing;
 
 	private bool TryVrHandWall(XrBridge.Pose pose, bool tracked, float trigger, Camera anchor, Vec3 reference, out WallHit wall)
@@ -1449,6 +1452,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		if (!tracked || trigger <= .4f) return false;
 		var hand = Vec3.Transform(Vec3.Zero, VrCamera.TrackedPose(anchor, pose.Position, pose.Rotation, reference, 10));
 		if (!float.IsFinite(hand.X) || !float.IsFinite(hand.Y) || !float.IsFinite(hand.Z)) return false;
+		hand = World.ConstrainVrHand(Game.Instance.FirstPersonHeadWorldPosition, hand);
 		return World.SolidWallCheckNearest(hand, 3.0f, out wall) && ClimbNormalCheck(wall.Normal);
 	}
 
@@ -1470,6 +1474,9 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		SweepTestMove(moveTo - Position, false);
 		targetFacing = -climbingWallNormal.XY().Normalized();
 		vrHandClimb.Reset();
+		vrClimbMomentum.Reset();
+		vrLastHandFrame = Game.Instance.FirstPersonHandFrame;
+		vrClimbSampleElapsed = 0;
 		return true;
 	}
 
@@ -1488,11 +1495,23 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 			&& Vec3.Dot(rightWall.Normal, climbingWallNormal) > .7f;
 		var left = new VrHandClimb.Hand(hands.Left.Position, hands.LeftValid != 0, hands.LeftTrigger > .4f, leftTouch);
 		var right = new VrHandClimb.Hand(hands.Right.Position, hands.RightValid != 0, hands.RightTrigger > .4f, rightTouch);
+		bool wasGrabbing = vrHandClimb.IsGrabbing;
+		bool grabbedHandsTracked = (!vrHandClimb.LeftGrabbed || hands.LeftValid != 0) &&
+			(!vrHandClimb.RightGrabbed || hands.RightValid != 0);
 		var movement = vrHandClimb.Update(left, right);
 		if (!vrHandClimb.IsGrabbing)
 		{
+			// Only a deliberate release can fling; tracking loss must not launch the player.
+			bool released = wasGrabbing && grabbedHandsTracked && hands.LeftTrigger <= .4f && hands.RightTrigger <= .4f;
+			var launchVelocity = released ? vrClimbMomentum.Release() : Vec3.Zero;
 			Audio.Play(Sfx.sfx_let_go, Position);
 			stateMachine.State = States.Normal;
+			if (released)
+			{
+				velocity = launchVelocity;
+				tClimbCooldown = .15f;
+				CancelGroundSnap();
+			}
 			return;
 		}
 		if (Controls.Jump.ConsumePress())
@@ -1512,6 +1531,13 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		CancelGroundSnap();
 		var basis = VrCamera.TrackedPose(anchor, reference, Quaternion.Identity, reference, 10);
 		var delta = Vec3.TransformNormal(movement * 10, basis);
+		vrClimbSampleElapsed += Time.Delta;
+		if (Game.Instance.FirstPersonHandFrame != vrLastHandFrame)
+		{
+			vrClimbMomentum.Sample(delta, vrClimbSampleElapsed);
+			vrClimbSampleElapsed = 0;
+			vrLastHandFrame = Game.Instance.FirstPersonHandFrame;
+		}
 		delta -= climbingWallNormal * Vec3.Dot(delta, climbingWallNormal);
 		if (delta.Z < 0 && GroundCheck(out _, out _, out _)) delta.Z = 0;
 		var forward = new Vec3(targetFacing, 0);
@@ -1519,15 +1545,6 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		if (delta.LengthSquared() > 0.000001f) SweepTestMove(delta, false);
 		Model.Play("Climb.Idle");
 		sfxWallSlide?.Stop();
-		// Let the existing ledge hop finish an upward climb when the wall ends.
-		if (delta.Z > 0 && !World.SolidRayCast(SolidWaistTestPos, -climbingWallNormal, ClimbCheckDist + 2, out _))
-		{
-			stateMachine.State = States.Normal;
-			velocity = new(targetFacing * ClimbHopForwardSpeed, ClimbHopUpSpeed);
-			tNoMove = ClimbHopNoMoveTime;
-			tClimbCooldown = .3f;
-			autoJump = false;
-		}
 	}
 
 	private void StClimbingEnter()
@@ -1544,6 +1561,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	{
 		vrHandClimbing = false;
 		vrHandClimb.Reset();
+		vrClimbMomentum.Reset();
 		Model.Play("Idle");
 		Model.Rate = 1.0f;
 		climbingWallActor = default;

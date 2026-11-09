@@ -9,6 +9,8 @@ public sealed class VrHandClimb
 	private bool leftGrabbed, rightGrabbed;
 	private Vector3 lastLeft, lastRight;
 	public bool IsGrabbing => leftGrabbed || rightGrabbed;
+	public bool LeftGrabbed => leftGrabbed;
+	public bool RightGrabbed => rightGrabbed;
 
 	public void Reset() { leftGrabbed = rightGrabbed = false; }
 

@@ -14,6 +14,7 @@ public class World : Scene
 	public bool VrFirstPersonRendering;
 	internal XrBridge.Hands VrTrackedHands;
 	internal Vec3 VrHeadReference;
+	internal Vec3 VrHeadWorldPosition;
 	private VrHandRenderer? vrHandRenderer;
 	private bool vrHandRendererFailed;
 	public Rng Rng = new(0);
@@ -475,6 +476,19 @@ public class World : Scene
 		}
 	}
 
+	/// <summary>Keep a tracked hand on the near side of solid world geometry.</summary>
+	internal Vec3 ConstrainVrHand(Vec3 head, Vec3 hand)
+	{
+		var delta = hand - head;
+		float distanceSquared = delta.LengthSquared();
+		if (!float.IsFinite(distanceSquared) || distanceSquared < 0.000001f) return hand;
+		float distance = MathF.Sqrt(distanceSquared);
+		const float handRadius = 1.0f;
+		if (SolidRayCast(head, delta / distance, distance + handRadius, out var hit, true, true))
+			return hit.Point + hit.Normal * handRadius;
+		return hand;
+	}
+
 	public bool SolidRayCast(in Vec3 point, in Vec3 direction, float distance, out RayHit hit, bool ignoreBackfaces = true, bool ignoreTransparent = false)
 	{
 		hit = default;
@@ -839,7 +853,7 @@ public class World : Scene
 				try { vrHandRenderer = new VrHandRenderer(); }
 				catch (Exception error) { vrHandRendererFailed = true; Log.Warning($"Could not load VR hand meshes: {error.Message}"); }
 			}
-			vrHandRenderer?.Render(ref state, handAnchor, VrHeadReference, VrTrackedHands);
+			vrHandRenderer?.Render(ref state, handAnchor, VrHeadReference, VrHeadWorldPosition, VrTrackedHands, this);
 		}
 
 		if (includeUi)

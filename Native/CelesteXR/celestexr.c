@@ -1,6 +1,7 @@
 ﻿/* CelesteXR: minimal OpenXR session and stereo swapchain bridge for SDL GPU. */
 #include <SDL3/SDL.h>
 #include "openxr/openxr.h"
+#include "vr_panel_pose.h"
 #include <SDL3/SDL_openxr.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -260,11 +261,7 @@ API int CelesteXR_EndFrame(Bridge *b, int mode) {
     XrCompositionLayerProjection layer={XR_TYPE_COMPOSITION_LAYER_PROJECTION}; layer.space=b->space; layer.viewCount=2; layer.views=pv;
     XrCompositionLayerQuad quad={XR_TYPE_COMPOSITION_LAYER_QUAD};
     if (mode && b->shouldRender && mode != b->flatLast) {
-        XrQuaternionf q=b->views[0].pose.orientation;
-        b->flatPose.orientation=q;
-        b->flatPose.position.x=(b->views[0].pose.position.x+b->views[1].pose.position.x)*0.5f-4*(q.x*q.z+q.w*q.y);
-        b->flatPose.position.y=(b->views[0].pose.position.y+b->views[1].pose.position.y)*0.5f-4*(q.y*q.z-q.w*q.x);
-        b->flatPose.position.z=(b->views[0].pose.position.z+b->views[1].pose.position.z)*0.5f-2*(1-2*(q.x*q.x+q.y*q.y));
+        b->flatPose=CelesteXR_LevelPanelPose(b->views[0].pose,b->views[1].pose);
     }
     if (b->shouldRender) b->flatLast=mode;
     quad.space=b->space; quad.eyeVisibility=XR_EYE_VISIBILITY_BOTH;

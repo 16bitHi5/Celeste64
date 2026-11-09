@@ -66,6 +66,8 @@ public class Game : App
 	public Vec3? FirstPersonViewForward { get; private set; }
 	internal XrBridge.Hands FirstPersonHands { get; private set; }
 	internal Camera? FirstPersonHandAnchor { get; private set; }
+	internal Vec3 FirstPersonHeadWorldPosition { get; private set; }
+	internal ulong FirstPersonHandFrame { get; private set; }
 	internal Vec3? FirstPersonHeadReference => xrReferencePosition;
 	public bool QuestControlsEnabled { get; private set; } = true;
 	public void ToggleQuestControls()
@@ -435,8 +437,12 @@ public class Game : App
 				{
 					FirstPersonHands = xr.GetHands();
 					FirstPersonHandAnchor = renderAnchor;
+					FirstPersonHeadWorldPosition = Vec3.Transform(Vec3.Zero, VrCamera.TrackedPose(renderAnchor,
+						(eyes[0].Position + eyes[1].Position) / 2, Quaternion.Identity, xrReferencePosition.Value, 10));
+					FirstPersonHandFrame++;
 					world.VrTrackedHands = FirstPersonHands;
 					world.VrHeadReference = xrReferencePosition.Value;
+					world.VrHeadWorldPosition = FirstPersonHeadWorldPosition;
 				}
 				else { FirstPersonViewForward = null; FirstPersonHands = default; FirstPersonHandAnchor = null; }
 				try
