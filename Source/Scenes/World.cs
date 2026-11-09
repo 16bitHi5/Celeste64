@@ -11,6 +11,11 @@ public class World : Scene
 	public Camera Camera = new();
 	// Shared centre camera keeps VR billboards fixed in the same place for both eyes.
 	public Camera? VrReferenceCamera;
+	public bool VrFirstPersonRendering;
+	internal XrBridge.Hands VrTrackedHands;
+	internal Vec3 VrHeadReference;
+	private VrHandRenderer? vrHandRenderer;
+	private bool vrHandRendererFailed;
 	public Rng Rng = new(0);
 	public float HitStun = 0;
 	public bool Paused = false;
@@ -139,6 +144,14 @@ public class World : Scene
 				vrControls.Add(new Menu.Info("Xbox works at the same time"));
 				vrControls.Add(new Menu.Info("Use Xbox to turn Quest back on"));
 				pauseMenu.Add(new Menu.Submenu("VR Controls", pauseMenu, vrControls));
+				Menu vrView = new(Controls) { Title = () => "VR VIEW" };
+				vrView.Add(new Menu.MultiSelect("View", ["Third person", "First person"],
+					() => Save.Instance.VrFirstPerson ? 1 : 0,
+					index => { Save.Instance.VrFirstPerson = index == 1; Save.Instance.SaveToFile(Game.UserPath); }));
+				vrView.Add(new Menu.Info("First person is experimental"));
+				vrView.Add(new Menu.Info("Either trigger: climb"));
+				vrView.Add(new Menu.Info("Tracked hands: experimental"));
+				pauseMenu.Add(new Menu.Submenu("VR View", pauseMenu, vrView));
 				Menu vrGraphics = new(Controls) { Title = () => "VR GRAPHICS" };
 				vrGraphics.Add(new Menu.MultiSelect("Resolution", ["Retro", "Clear"],
 					() => Save.Instance.VrClearGraphics ? 1 : 0,
@@ -201,6 +214,8 @@ public class World : Scene
 
 		postTarget?.Dispose();
 		postTarget = null;
+		vrHandRenderer?.Dispose();
+		vrHandRenderer = null;
 	}
 
 	public T Request<T>() where T : Actor, IRecycle, new()
@@ -815,6 +830,16 @@ public class World : Scene
 			RenderModels(ref state, models, ModelFlags.StrawberryGetEffect);
 
 			ApplyPostEffects();
+		}
+
+		if (VrFirstPersonRendering && VrReferenceCamera is { } handAnchor)
+		{
+			if (vrHandRenderer == null && !vrHandRendererFailed)
+			{
+				try { vrHandRenderer = new VrHandRenderer(); }
+				catch (Exception error) { vrHandRendererFailed = true; Log.Warning($"Could not load VR hand meshes: {error.Message}"); }
+			}
+			vrHandRenderer?.Render(ref state, handAnchor, VrHeadReference, VrTrackedHands);
 		}
 
 		if (includeUi)

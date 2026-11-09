@@ -64,6 +64,32 @@ if (VrGraphics.RenderSize(false, 2528, 2704) != (1024, 1024) ||
     throw new Exception("VR quality render sizes were not selected correctly.");
 Console.WriteLine("VR quality selection checks passed.");
 
+var thirdPersonAnchor = new Camera { Position = new(0, -20, 30), LookAt = new(0, 0, 10) };
+var firstPersonAnchor = VrCamera.FirstPersonAnchor(thirdPersonAnchor, new(5, 7, 3), -Vector3.UnitX);
+Near(firstPersonAnchor.Position, new(5, 7, 13), "first-person eye height");
+Near(firstPersonAnchor.Forward, Vector3.UnitY, "first-person horizontal heading");
+var firstPersonEye = VrCamera.ForEye(firstPersonAnchor, new(.032f, 1.6f, 0), Quaternion.Identity,
+    new(0, 1.6f, 0), 10, -.7f, .7f, -.7f, .7f, 1, 800);
+Near(firstPersonEye.Position, new(5.32f, 7, 13), "first-person right-eye offset");
+var handTransform = VrCamera.TrackedPose(firstPersonAnchor, new(.25f, 1.4f, -.5f), Quaternion.Identity,
+    new(0, 1.6f, 0), 10);
+Near(Vector3.Transform(Vector3.Zero, handTransform), new(7.5f, 12, 11), "tracked hand position");
+var verticalAnchor = VrCamera.FirstPersonAnchor(new Camera { LookAt = Vector3.UnitZ }, Vector3.Zero, -Vector3.UnitX);
+Near(verticalAnchor.Forward, -Vector3.UnitX, "first-person fallback heading");
+Console.WriteLine("First-person anchor and eye-offset checks passed.");
+
+var searchDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+while (searchDirectory != null && !File.Exists(Path.Combine(searchDirectory.FullName, "Content", "Models", "player.glb")))
+    searchDirectory = searchDirectory.Parent;
+if (searchDirectory == null) throw new Exception("Could not find the player model for hand extraction checks.");
+var playerModel = SharpGLTF.Schema2.ModelRoot.Load(Path.Combine(searchDirectory.FullName, "Content", "Models", "player.glb"));
+var hands = VrHandGeometry.Extract(playerModel);
+if (hands.Left.Indices.Length != 132 || hands.Right.Indices.Length != 132 ||
+    hands.Left.Indices.Any(i => i < 0 || i >= hands.Left.Vertices.Length) ||
+    hands.Right.Indices.Any(i => i < 0 || i >= hands.Right.Vertices.Length))
+    throw new Exception("Original player hand triangles were not separated correctly.");
+Console.WriteLine("Original left and right hand mesh extraction checks passed.");
+
 if (args.Contains("--audio-integration"))
 {
     Audio.Init();

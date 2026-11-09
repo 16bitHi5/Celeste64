@@ -25,6 +25,8 @@ internal sealed class XrBridge : IDisposable
     }
     [StructLayout(LayoutKind.Sequential)]
     internal struct Pointer { public Pose Aim, Surface; public int Valid, Trigger; }
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Hands { public Pose Left, Right; public int LeftValid, RightValid; }
 
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern nint CelesteXR_New(nint device, nint instance, ulong system);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern int CelesteXR_Init(nint bridge);
@@ -33,8 +35,9 @@ internal sealed class XrBridge : IDisposable
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern int CelesteXR_EndFrame(nint bridge, int flat);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_Destroy(nint bridge);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_SetInputEnabled(nint bridge, int enabled);
-    [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_SetInputOptions(nint bridge, int menuActive, int gripDash);
+    [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_SetInputOptions(nint bridge, int menuActive, int gripDash, int firstPerson);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_GetPointer(nint bridge, out Pointer pointer);
+    [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_GetHands(nint bridge, out Hands hands);
 
     private nint handle;
     public readonly Eye[] Eyes = new Eye[3];
@@ -70,8 +73,9 @@ internal sealed class XrBridge : IDisposable
     private string Error() => Marshal.PtrToStringUTF8(CelesteXR_Error(handle)) ?? "Unknown OpenXR error";
 
     public void SetInputEnabled(bool enabled) => CelesteXR_SetInputEnabled(handle, enabled ? 1 : 0);
-    public void SetInputOptions(bool menuActive, bool gripDash) => CelesteXR_SetInputOptions(handle, menuActive ? 1 : 0, gripDash ? 1 : 0);
+    public void SetInputOptions(bool menuActive, bool gripDash, bool firstPerson) => CelesteXR_SetInputOptions(handle, menuActive ? 1 : 0, gripDash ? 1 : 0, firstPerson ? 1 : 0);
     public Pointer GetPointer() { CelesteXR_GetPointer(handle, out var pointer); return pointer; }
+    public Hands GetHands() { CelesteXR_GetHands(handle, out var hands); return hands; }
 
     public void Dispose()
     {

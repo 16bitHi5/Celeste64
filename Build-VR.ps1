@@ -1,3 +1,5 @@
+param([string]$OutputDirectory = (Join-Path $PSScriptRoot 'Artifacts\CelesteVR'))
+
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $sdk = Join-Path $env:LOCALAPPDATA 'CelesteVR\dotnet\dotnet.exe'
@@ -28,7 +30,7 @@ cmake -S (Join-Path $root 'Native\CelesteXR') -B $bridgeBuild -G 'Visual Studio 
 if ($LASTEXITCODE -ne 0) { throw 'XR bridge configuration failed.' }
 cmake --build $bridgeBuild --config Release
 if ($LASTEXITCODE -ne 0) { throw 'XR bridge build failed.' }
-$output = Join-Path $root 'Artifacts\CelesteVR'
+$output = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $root $OutputDirectory }
 & $sdk build (Join-Path $root 'Celeste64.csproj') -c Debug -o $output
 if ($LASTEXITCODE -ne 0) { throw 'Celeste build failed.' }
 Copy-Item (Join-Path $sdlBuild 'Release\SDL3.dll') $output -Force

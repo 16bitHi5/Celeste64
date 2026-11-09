@@ -603,7 +603,8 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 
 			Vec2 forward, side;
 			
-            var cameraForward = (World.Camera.LookAt - World.Camera.Position).Normalized().XY();
+            var cameraForward = (Game.Instance.IsVr && Save.Instance.VrFirstPerson && Game.Instance.FirstPersonViewForward is { } headForward
+				? headForward : World.Camera.Forward).XY();
 			if (cameraForward.X == 0 && cameraForward.Y == 0)
 				forward = targetFacing;
 			else
@@ -1242,6 +1243,8 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	{
 		if (RelativeMoveInput != Vec2.Zero)
 			targetFacing = RelativeMoveInput;
+		else if (Game.Instance.IsVr && Save.Instance.VrFirstPerson && Game.Instance.FirstPersonViewForward is { } forward && forward.XY().LengthSquared() > 0.0001f)
+			targetFacing = forward.XY().Normalized();
 		Facing = targetFacing;
 
 		lastDashHairColor = dashes <= 0 ? CNoDash : CNormal;
@@ -2207,6 +2210,10 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 
 	public void CollectModels(List<(Actor Actor, Model Model)> populate)
 	{
+		// The third-person mesh includes the head and hair; keep it out of the
+		// experimental eye-level view until tracked first-person hands are ready.
+		if (World.VrFirstPersonRendering)
+			return;
 		if ((World.Camera.Position - (Position + Vec3.UnitZ * 8)).LengthSquared() > World.Camera.NearPlane * World.Camera.NearPlane)
 		{
 			if (drawHair)

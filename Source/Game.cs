@@ -63,6 +63,7 @@ public class Game : App
 		return pressed;
 	}
 	public bool IsVr => xr != null;
+	public Vec3? FirstPersonViewForward { get; private set; }
 	public bool QuestControlsEnabled { get; private set; } = true;
 	public void ToggleQuestControls()
 	{
@@ -401,7 +402,7 @@ public class Game : App
 	{
 		if (xr == null) return false;
 		bool menuActive = scenes.TryPeek(out var top) && (top is not World || ((World)top).Paused);
-		xr.SetInputOptions(menuActive, Save.Instance.VrGripDash);
+		xr.SetInputOptions(menuActive, Save.Instance.VrGripDash, Save.Instance.VrFirstPerson);
 		if (!xr.Begin(out bool shouldRender)) return false;
 		int layerMode = 0;
 		try
@@ -422,19 +423,26 @@ public class Game : App
 			{
 				layerMode = world.Paused ? 3 : 2;
 				var originalCamera = world.Camera;
-				world.VrReferenceCamera = originalCamera;
+				var player = world.Get<Player>();
+				bool firstPerson = Save.Instance.VrFirstPerson && player != null;
+				var renderAnchor = firstPerson ? VrCamera.FirstPersonAnchor(originalCamera, player!.Position, player.Forward) : originalCamera;
+				world.VrReferenceCamera = renderAnchor;
+				world.VrFirstPersonRendering = firstPerson;
+				if (firstPerson) { world.VrTrackedHands = xr.GetHands(); world.VrHeadReference = xrReferencePosition.Value; }
+				if (!firstPerson) FirstPersonViewForward = null;
 				try
 				{
 					for (int i = 0; i < 2; i++)
 					{
 						var eye = eyes[i];
-						world.Camera = VrCamera.ForEye(originalCamera, eye.Position, eye.Orientation, xrReferencePosition.Value,
+						world.Camera = VrCamera.ForEye(renderAnchor, eye.Position, eye.Orientation, xrReferencePosition.Value,
 							10, eye.Left, eye.Right, eye.Down, eye.Up, 1, 800);
+						if (firstPerson && i == 0) FirstPersonViewForward = world.Camera.Forward;
 						world.Render(xrTargets[i], false);
 						GraphicsDevice.BlitToXrImage(xrTargets[i].Attachments[0], eye.Texture, eye.Width, eye.Height);
 					}
 				}
-				finally { world.Camera = originalCamera; world.VrReferenceCamera = null; }
+				finally { world.Camera = originalCamera; world.VrReferenceCamera = null; world.VrFirstPersonRendering = false; }
 				world.RenderVrUi(target);
 				if (world.Paused) DrawVrPointer(target);
 				GraphicsDevice.BlitToXrImage(target.Attachments[0], eyes[2].Texture, eyes[2].Width, eyes[2].Height);

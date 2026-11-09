@@ -14,6 +14,7 @@
 
 typedef struct { float px,py,pz,qx,qy,qz,qw,left,right,down,up; int32_t width,height; void *texture; } CelesteEye;
 typedef struct { XrPosef aim, surface; int32_t valid, trigger; } CelestePointer;
+typedef struct { XrPosef left, right; int32_t leftValid, rightValid; } CelesteHands;
 typedef struct { XrSwapchain handle; SDL_GPUTexture **images; uint32_t image; int acquired; XrExtent2Di size; } EyeSwap;
 typedef struct {
     SDL_GPUDevice *device; XrInstance instance; XrSystemId system; XrSession session; XrSpace space;
@@ -29,9 +30,9 @@ typedef struct {
     PFN_xrAttachSessionActionSets attachActions; PFN_xrSyncActions syncActions;
     PFN_xrGetActionStateBoolean getBoolean; PFN_xrGetActionStateFloat getFloat; PFN_xrGetActionStateVector2f getVector;
     PFN_xrGetActionStatePose getPose; PFN_xrCreateActionSpace createActionSpace; PFN_xrLocateSpace locateSpace;
-    XrActionSet actionSet; XrAction move, camera, jump, dash, trigger, grip, pause, select, aim;
-    XrSpace aimSpace; CelestePointer pointer;
-    SDL_JoystickID joystickId; SDL_Joystick *joystick; int inputEnabled, focused, menuActive, gripDash;
+    XrActionSet actionSet; XrAction move, camera, jump, dash, trigger, leftTrigger, grip, pause, select, aim, leftHand, rightHand;
+    XrSpace aimSpace, leftHandSpace, rightHandSpace; CelestePointer pointer; CelesteHands hands;
+    SDL_JoystickID joystickId; SDL_Joystick *joystick; int inputEnabled, focused, menuActive, gripDash, firstPerson;
     EyeSwap eye[3]; XrView views[2]; XrTime displayTime; int running, frameBegun, shouldRender;
     char error[256]; int loggedFrame, flatLast; XrPosef flatPose;
 } Bridge;
@@ -60,26 +61,32 @@ static int init_input(Bridge *b) {
         !make_action(b,&b->jump,XR_ACTION_TYPE_BOOLEAN_INPUT,"jump","Jump and Confirm") ||
         !make_action(b,&b->dash,XR_ACTION_TYPE_BOOLEAN_INPUT,"dash","Dash and Back") ||
         !make_action(b,&b->trigger,XR_ACTION_TYPE_FLOAT_INPUT,"trigger","Climb and Select") ||
+        !make_action(b,&b->leftTrigger,XR_ACTION_TYPE_FLOAT_INPUT,"left_trigger","Left Hand Climb") ||
         !make_action(b,&b->grip,XR_ACTION_TYPE_FLOAT_INPUT,"grip","Optional Grip Dash") ||
         !make_action(b,&b->pause,XR_ACTION_TYPE_BOOLEAN_INPUT,"pause","Pause") ||
         !make_action(b,&b->select,XR_ACTION_TYPE_BOOLEAN_INPUT,"select","Menu Select") ||
-        !make_action(b,&b->aim,XR_ACTION_TYPE_POSE_INPUT,"pointer","Menu Pointer")) return 0;
+        !make_action(b,&b->aim,XR_ACTION_TYPE_POSE_INPUT,"pointer","Menu Pointer") ||
+        !make_action(b,&b->leftHand,XR_ACTION_TYPE_POSE_INPUT,"left_hand","Left Hand") ||
+        !make_action(b,&b->rightHand,XR_ACTION_TYPE_POSE_INPUT,"right_hand","Right Hand")) return 0;
     const char *paths[]={"/user/hand/left/input/thumbstick", "/user/hand/right/input/thumbstick",
         "/user/hand/right/input/a/click", "/user/hand/right/input/b/click",
-        "/user/hand/right/input/trigger/value", "/user/hand/right/input/squeeze/value", "/user/hand/left/input/squeeze/value",
+        "/user/hand/right/input/trigger/value", "/user/hand/left/input/trigger/value", "/user/hand/right/input/squeeze/value", "/user/hand/left/input/squeeze/value",
         "/user/hand/left/input/x/click", "/user/hand/left/input/y/click",
-        "/user/hand/left/input/menu/click", "/user/hand/right/input/thumbstick/click", "/user/hand/right/input/aim/pose"};
-    XrAction actions[]={b->move,b->camera,b->jump,b->dash,b->trigger,b->grip,b->grip,b->pause,b->select,b->pause,b->pause,b->aim};
-    XrActionSuggestedBinding bindings[12];
-    for(int i=0;i<12;i++){bindings[i].action=actions[i]; CHECK(b->stringToPath(b->instance,paths[i],&bindings[i].binding));}
+        "/user/hand/left/input/menu/click", "/user/hand/right/input/thumbstick/click", "/user/hand/right/input/aim/pose",
+        "/user/hand/left/input/grip/pose", "/user/hand/right/input/grip/pose"};
+    XrAction actions[]={b->move,b->camera,b->jump,b->dash,b->trigger,b->leftTrigger,b->grip,b->grip,b->pause,b->select,b->pause,b->pause,b->aim,b->leftHand,b->rightHand};
+    XrActionSuggestedBinding bindings[15];
+    for(int i=0;i<15;i++){bindings[i].action=actions[i]; CHECK(b->stringToPath(b->instance,paths[i],&bindings[i].binding));}
     XrPath profile; CHECK(b->stringToPath(b->instance,"/interaction_profiles/oculus/touch_controller",&profile));
     XrInteractionProfileSuggestedBinding suggested={XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
-    suggested.interactionProfile=profile; suggested.countSuggestedBindings=12; suggested.suggestedBindings=bindings;
+    suggested.interactionProfile=profile; suggested.countSuggestedBindings=15; suggested.suggestedBindings=bindings;
     CHECK(b->suggestBindings(b->instance,&suggested));
     XrSessionActionSetsAttachInfo attach={XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO}; attach.countActionSets=1; attach.actionSets=&b->actionSet;
     CHECK(b->attachActions(b->session,&attach));
     XrActionSpaceCreateInfo aimInfo={XR_TYPE_ACTION_SPACE_CREATE_INFO}; aimInfo.action=b->aim; aimInfo.poseInActionSpace.orientation.w=1;
     CHECK(b->createActionSpace(b->session,&aimInfo,&b->aimSpace));
+    aimInfo.action=b->leftHand; CHECK(b->createActionSpace(b->session,&aimInfo,&b->leftHandSpace));
+    aimInfo.action=b->rightHand; CHECK(b->createActionSpace(b->session,&aimInfo,&b->rightHandSpace));
     SDL_VirtualJoystickDesc desc; SDL_zero(desc); SDL_INIT_INTERFACE(&desc);
     desc.type=SDL_JOYSTICK_TYPE_GAMEPAD; desc.naxes=4; desc.nbuttons=SDL_GAMEPAD_BUTTON_COUNT;
     desc.axis_mask=(1u<<SDL_GAMEPAD_AXIS_LEFTX)|(1u<<SDL_GAMEPAD_AXIS_LEFTY)|(1u<<SDL_GAMEPAD_AXIS_RIGHTX)|(1u<<SDL_GAMEPAD_AXIS_RIGHTY);
@@ -93,7 +100,7 @@ static void set_input(Bridge *b, int enabled) {
     if(!b->joystick) return;
     XrActionStateVector2f move={XR_TYPE_ACTION_STATE_VECTOR2F}, camera={XR_TYPE_ACTION_STATE_VECTOR2F};
     XrActionStateBoolean jump={XR_TYPE_ACTION_STATE_BOOLEAN}, dash={XR_TYPE_ACTION_STATE_BOOLEAN}, pause={XR_TYPE_ACTION_STATE_BOOLEAN}, select={XR_TYPE_ACTION_STATE_BOOLEAN};
-    XrActionStateFloat trigger={XR_TYPE_ACTION_STATE_FLOAT}, grip={XR_TYPE_ACTION_STATE_FLOAT};
+    XrActionStateFloat trigger={XR_TYPE_ACTION_STATE_FLOAT}, leftTrigger={XR_TYPE_ACTION_STATE_FLOAT}, grip={XR_TYPE_ACTION_STATE_FLOAT};
     b->pointer.trigger=0; b->pointer.valid=0;
     if(enabled && b->focused) {
         XrActiveActionSet active={b->actionSet,XR_NULL_PATH}; XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO}; sync.countActiveActionSets=1; sync.activeActionSets=&active;
@@ -102,7 +109,7 @@ static void set_input(Bridge *b, int enabled) {
             get.action=b->move; b->getVector(b->session,&get,&move); get.action=b->camera; b->getVector(b->session,&get,&camera);
             get.action=b->jump; b->getBoolean(b->session,&get,&jump); get.action=b->dash; b->getBoolean(b->session,&get,&dash);
             get.action=b->pause; b->getBoolean(b->session,&get,&pause); get.action=b->select; b->getBoolean(b->session,&get,&select);
-            get.action=b->trigger; b->getFloat(b->session,&get,&trigger); get.action=b->grip; b->getFloat(b->session,&get,&grip);
+            get.action=b->trigger; b->getFloat(b->session,&get,&trigger); get.action=b->leftTrigger; b->getFloat(b->session,&get,&leftTrigger); get.action=b->grip; b->getFloat(b->session,&get,&grip);
             b->pointer.trigger=trigger.isActive && trigger.currentState>0.5f;
         }
     }
@@ -112,13 +119,14 @@ static void set_input(Bridge *b, int enabled) {
     SDL_SetJoystickVirtualAxis(b->joystick,3,(Sint16)(-SDL_clamp(camera.currentState.y,-1.0f,1.0f)*32767));
     SDL_SetJoystickVirtualButton(b->joystick,SDL_GAMEPAD_BUTTON_SOUTH,jump.currentState!=0 || (b->menuActive && select.currentState));
     SDL_SetJoystickVirtualButton(b->joystick,SDL_GAMEPAD_BUTTON_EAST,dash.currentState!=0 || (!b->menuActive && b->gripDash && grip.currentState>0.4f));
-    SDL_SetJoystickVirtualButton(b->joystick,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,!b->menuActive && trigger.currentState>0.4f);
+    SDL_SetJoystickVirtualButton(b->joystick,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,!b->menuActive && (trigger.currentState>0.4f || (b->firstPerson && leftTrigger.currentState>0.4f)));
     SDL_SetJoystickVirtualButton(b->joystick,SDL_GAMEPAD_BUTTON_START,pause.currentState!=0);
 }
 
 API void CelesteXR_SetInputEnabled(Bridge *b, int enabled) { if(b) {b->inputEnabled=enabled!=0; if(!enabled) set_input(b,0);} }
-API void CelesteXR_SetInputOptions(Bridge *b, int menuActive, int gripDash) { if(b) {b->menuActive=menuActive!=0; b->gripDash=gripDash!=0;} }
+API void CelesteXR_SetInputOptions(Bridge *b, int menuActive, int gripDash, int firstPerson) { if(b) {b->menuActive=menuActive!=0; b->gripDash=gripDash!=0; b->firstPerson=firstPerson!=0;} }
 API void CelesteXR_GetPointer(Bridge *b, CelestePointer *pointer) { if(b && pointer) *pointer=b->pointer; }
+API void CelesteXR_GetHands(Bridge *b, CelesteHands *hands) { if(b && hands) *hands=b->hands; }
 
 API const char *CelesteXR_Error(Bridge *b) { return b ? b->error : "No XR bridge"; }
 API Bridge *CelesteXR_New(void *device, void *instance, uint64_t system) {
@@ -190,6 +198,20 @@ API int CelesteXR_BeginFrame(Bridge *b, CelesteEye *out, int *render) {
     XrFrameBeginInfo bi={XR_TYPE_FRAME_BEGIN_INFO};
     r=b->beginFrame(b->session,&bi); if(XR_FAILED(r)){fail(b,"xrBeginFrame",r);return -1;}
     b->frameBegun=1; b->displayTime=state.predictedDisplayTime; b->shouldRender=0; *render=0;
+    b->hands.leftValid=b->hands.rightValid=0;
+    if(b->firstPerson && b->inputEnabled && b->focused) {
+        XrAction actions[2]={b->leftHand,b->rightHand}; XrSpace spaces[2]={b->leftHandSpace,b->rightHandSpace};
+        for(int i=0;i<2;i++) {
+            if(!spaces[i]) continue;
+            XrActionStateGetInfo gi={XR_TYPE_ACTION_STATE_GET_INFO}; gi.action=actions[i];
+            XrActionStatePose ps={XR_TYPE_ACTION_STATE_POSE}; XrSpaceLocation loc={XR_TYPE_SPACE_LOCATION};
+            if(XR_SUCCEEDED(b->getPose(b->session,&gi,&ps)) && ps.isActive &&
+               XR_SUCCEEDED(b->locateSpace(spaces[i],b->space,b->displayTime,&loc)) &&
+               (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+                if(i==0) {b->hands.left=loc.pose;b->hands.leftValid=1;} else {b->hands.right=loc.pose;b->hands.rightValid=1;}
+            }
+        }
+    }
     if(b->menuActive && b->inputEnabled && b->focused && b->aimSpace && b->flatLast) {
         XrActionStateGetInfo gi={XR_TYPE_ACTION_STATE_GET_INFO}; gi.action=b->aim;
         XrActionStatePose ps={XR_TYPE_ACTION_STATE_POSE};
@@ -255,6 +277,8 @@ API void CelesteXR_Destroy(Bridge *b) {
     for(int i=0;i<3;i++) if(b->eye[i].handle) SDL_DestroyGPUXRSwapchain(b->device,b->eye[i].handle,b->eye[i].images);
     if(b->space && b->destroySpace) b->destroySpace(b->space);
     if(b->aimSpace && b->destroySpace) b->destroySpace(b->aimSpace);
+    if(b->leftHandSpace && b->destroySpace) b->destroySpace(b->leftHandSpace);
+    if(b->rightHandSpace && b->destroySpace) b->destroySpace(b->rightHandSpace);
     if(b->session && b->destroySession) b->destroySession(b->session);
     if(b->actionSet && b->destroyActionSet) b->destroyActionSet(b->actionSet);
     if(b->joystick) SDL_CloseJoystick(b->joystick);
