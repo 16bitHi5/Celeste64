@@ -31,7 +31,8 @@ class Program
 				Height: 720,
 				Fullscreen: false,
 				Resizable: true,
-				UpdateMode: UpdateMode.FixedStep(60)
+				UpdateMode: UpdateMode.FixedStep(60),
+				Flags: Environment.GetEnvironmentVariable("CELESTE64_GRAPHICS_DEBUG") == "1" ? AppFlags.GraphicsDebugging : AppFlags.None
 			));
 			errorLogPath = game.UserPath;
 			game.Run();

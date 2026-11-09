@@ -65,6 +65,12 @@ public class Save
 	/// </summary>
 	public bool SpeedrunTimer { get; set; } = false;
 
+	/// <summary>Allow either Quest grip button to dash in VR.</summary>
+	public bool VrGripDash { get; set; } = true;
+	public bool VrGripDashDefaultApplied { get; set; } = false;
+	/// <summary>Use a higher per-eye world rendering resolution in VR.</summary>
+	public bool VrClearGraphics { get; set; } = true;
+
 	/// <summary>
 	/// 0-10 Music volume level
 	/// </summary>

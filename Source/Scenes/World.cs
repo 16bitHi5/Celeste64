@@ -9,6 +9,8 @@ public class World : Scene
 	public readonly record struct EntryInfo(string Map, string CheckPoint, bool Submap, EntryReasons Reason);
 
 	public Camera Camera = new();
+	// Shared centre camera keeps VR billboards fixed in the same place for both eyes.
+	public Camera? VrReferenceCamera;
 	public Rng Rng = new(0);
 	public float HitStun = 0;
 	public bool Paused = false;
@@ -66,6 +68,7 @@ public class World : Scene
 		Entry = entry;
 		batch = new(GraphicsDevice);
 		pauseMenu = new(Controls);
+		pauseMenu.EnableVrPointer = true;
 
 		var stopwatch = Stopwatch.StartNew();
 		var map = Assets.Maps[entry.Map];
@@ -122,6 +125,28 @@ public class World : Scene
 				Get<Player>()?.Kill();
 			}));
 			pauseMenu.Add(new Menu.Submenu(() => Loc.Str("PauseOptions"), pauseMenu, optionsMenu));
+			if (Game.Instance.IsVr)
+			{
+				Menu vrControls = new(Controls) { Title = () => "VR CONTROLS" };
+				vrControls.Add(new Menu.Toggle("Quest Touch", Game.Instance.ToggleQuestControls, () => Game.Instance.QuestControlsEnabled));
+				vrControls.Add(new Menu.Toggle("Both grips dash", () => { Save.Instance.VrGripDash = !Save.Instance.VrGripDash; Save.Instance.SaveToFile(Game.UserPath); }, () => Save.Instance.VrGripDash));
+				vrControls.Add(new Menu.Info("Left stick: move / menu"));
+				vrControls.Add(new Menu.Info("Right stick: camera"));
+				vrControls.Add(new Menu.Info("A: jump / confirm"));
+				vrControls.Add(new Menu.Info("B: dash / back"));
+				vrControls.Add(new Menu.Info("Right trigger: climb / select"));
+				vrControls.Add(new Menu.Info("X: pause   Y: select"));
+				vrControls.Add(new Menu.Info("Xbox works at the same time"));
+				vrControls.Add(new Menu.Info("Use Xbox to turn Quest back on"));
+				pauseMenu.Add(new Menu.Submenu("VR Controls", pauseMenu, vrControls));
+				Menu vrGraphics = new(Controls) { Title = () => "VR GRAPHICS" };
+				vrGraphics.Add(new Menu.MultiSelect("Resolution", ["Retro", "Clear"],
+					() => Save.Instance.VrClearGraphics ? 1 : 0,
+					index => { Save.Instance.VrClearGraphics = index == 1; Save.Instance.SaveToFile(Game.UserPath); }));
+				vrGraphics.Add(new Menu.Info("Clear: sharper world rendering"));
+				vrGraphics.Add(new Menu.Info("Retro: lower resolution"));
+				pauseMenu.Add(new Menu.Submenu("VR Graphics", pauseMenu, vrGraphics));
+			}
 			pauseMenu.Add(new Menu.Option(() => Loc.Str("PauseSaveQuit"), () => Game.Instance.Goto(new Transition()
 			{
 				Mode = Transition.Modes.Replace,
@@ -655,7 +680,9 @@ public class World : Scene
 		return null;
 	}
 
-	public override void Render(Target target)
+	public override void Render(Target target) => Render(target, true);
+
+	public void Render(Target target, bool includeUi)
 	{
 		debugRndTimer.Restart();
 		Camera.Target = target;
@@ -763,21 +790,48 @@ public class World : Scene
 		if (models.Any((it) => it.Model.Flags.Has(ModelFlags.StrawberryGetEffect)))
 		{
 			var img = Assets.Subtextures["splash"];
-			var orig = new Vec2(img.Width, img.Height) / 2;
-			var bounds = new Rect(0, 0, Camera.Target.WidthInPixels, Camera.Target.HeightInPixels);
-
-			Camera.Target.Clear(Color.Black, 1, 0, ClearMask.Depth);
-
-			batch.Rect(bounds, Color.Black * 0.90f);
-			batch.Image(img, bounds.Center, orig, Vec2.One, 0, Color.White);
-			batch.Render(Camera.Target);
-			batch.Clear();
+			if (VrReferenceCamera is { } reference && Get<Player>() is { } player)
+			{
+				// A single, world-space plane behind the celebration, shared by both eyes.
+				var center = player.Position + Vec3.UnitZ * 8 + reference.Forward * 10;
+				var up = reference.Up * 25;
+				var left = reference.Left * (25 * img.Width / (float)img.Height);
+				var splash = new Sprite { Subtexture = img, A = center + left + up, B = center - left + up,
+					C = center - left - up, D = center + left - up, Color = Color.White, Post = true };
+				spriteRenderer.Render(ref state, [splash], true);
+				Camera.Target.Clear(Color.Black, 1, 0, ClearMask.Depth);
+			}
+			else
+			{
+				var orig = new Vec2(img.Width, img.Height) / 2;
+				var bounds = new Rect(0, 0, Camera.Target.WidthInPixels, Camera.Target.HeightInPixels);
+				Camera.Target.Clear(Color.Black, 1, 0, ClearMask.Depth);
+				batch.Rect(bounds, Color.Black * 0.90f);
+				batch.Image(img, bounds.Center, orig, Vec2.One, 0, Color.White);
+				batch.Render(Camera.Target);
+				batch.Clear();
+			}
 
 			RenderModels(ref state, models, ModelFlags.StrawberryGetEffect);
 
 			ApplyPostEffects();
 		}
 
+		if (includeUi)
+			RenderUi(target, state, false);
+
+		lastDebugRndTime = debugRndTimer.Elapsed;
+		debugRndTimer.Stop();
+	}
+
+	public void RenderVrUi(Target target)
+	{
+		target.Clear(Color.Transparent);
+		RenderUi(target, new RenderState(GraphicsDevice, Time), true);
+	}
+
+	private void RenderUi(Target target, RenderState state, bool vr)
+	{
 		// ui
 		{
 			batch.PushSampler(new TextureSampler(TextureFilter.Linear, TextureWrap.Clamp, TextureWrap.Clamp));
@@ -836,7 +890,8 @@ public class World : Scene
                 }
 			}
 
-			// overlay
+			// The screen-wide decorative overlay would haze the VR view.
+			if (!vr)
 			{
 				var scroll = -new Vec2(1.25f, 0.9f) * (float)(Time.Elapsed.TotalSeconds) * 0.05f;
 
@@ -849,12 +904,10 @@ public class World : Scene
 			}
 
 			batch.PopSampler();
-			batch.Render(Camera.Target);
+			batch.Render(target);
 			batch.Clear();
 		}
 
-		lastDebugRndTime = debugRndTimer.Elapsed;
-		debugRndTimer.Stop();
 	}
 
 	private void ApplyPostEffects()
@@ -862,7 +915,7 @@ public class World : Scene
 		// perform post processing effects
 		if (Camera.Target is Target target)
 		{
-			if (postTarget == null || postTarget.Width < target.Width || postTarget.Height < target.Height)
+			if (postTarget == null || postTarget.Width != target.Width || postTarget.Height != target.Height)
 			{
 				postTarget?.Dispose();
 				postTarget = new(GraphicsDevice, target.Width, target.Height);

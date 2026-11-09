@@ -23,6 +23,8 @@ public class Overworld : Scene
 			Target = new Target(gfx, CardWidth, CardHeight);
 			Image = new(Assets.Textures[level.Preview]);
 			Menu = new(controls);
+			Menu.EnableVrPointer = true;
+			Menu.UseVrPointerOverride = true;
 			Menu.UpSound = Sfx.main_menu_roll_up;
 			Menu.DownSound = Sfx.main_menu_roll_down;
 
@@ -130,6 +132,7 @@ public class Overworld : Scene
 
 	private States state = States.Selecting;
 	private int index = 0;
+	private int pointedCard = -1;
 	private float slide = 0;
 	private float selectedEase = 0;
 	private float cameraCloseUpEase = 0;
@@ -147,6 +150,7 @@ public class Overworld : Scene
 		batch = new(GraphicsDevice);
 		mesh = new(GraphicsDevice);
 		restartConfirmMenu = new(Controls);
+		restartConfirmMenu.EnableVrPointer = true;
 		
 		foreach (var level in Assets.Levels)
 			entries.Add(new(Controls, GraphicsDevice, level));
@@ -215,8 +219,10 @@ public class Overworld : Scene
 			if (was != index)
 				Audio.Play(Sfx.ui_move);
 
-			if (Controls.Confirm.ConsumePress())
+			bool clickedCard = pointedCard >= 0 && Game.Instance.ConsumeVrPointerPress();
+			if (Controls.Confirm.ConsumePress() || clickedCard)
 			{
+				if (clickedCard) index = pointedCard;
 				state = States.Selected;
 				entries[index].Menu.Index = 0;
 				Audio.Play(Sfx.main_menu_postcard_flip);
@@ -235,7 +241,7 @@ public class Overworld : Scene
 		}
 		else if (state == States.Selected)
 		{
-			if (Controls.Confirm.ConsumePress() && entries[index].SelectionEase > 0.50f)
+			if ((Controls.Confirm.ConsumePress() || entries[index].Menu.ConsumePointerSelection()) && entries[index].SelectionEase > 0.50f)
 			{
 				if (entries[index].Menu.Index == 1)
 				{
@@ -260,7 +266,7 @@ public class Overworld : Scene
 		{
 			restartConfirmMenu.Update(Time);
 
-			if (Controls.Confirm.ConsumePress())
+			if (Controls.Confirm.ConsumePress() || restartConfirmMenu.ConsumePointerSelection())
 			{
 				if (restartConfirmMenu.Index == 1)
 				{
@@ -313,6 +319,7 @@ public class Overworld : Scene
 			FarPlane = 1000
 		};
 
+		pointedCard = -1;
 		for (int i = 0; i < entries.Count; i ++)
 		{
 			var it = entries[i];
@@ -327,6 +334,14 @@ public class Overworld : Scene
 				Matrix.CreateRotationZ(wobble.X * it.HighlightEase) *
 				Matrix.CreateRotationZ((state == States.Entering ? -1 : 1) * rotation * MathF.PI) *
 				Matrix.CreateTranslation(position);
+
+			it.Menu.VrPointerOverride = null;
+			if (Game.Instance.VrPointerPosition is { } pointer &&
+				TryPointCard(pointer, target, matrix * camera.ViewProjection, out var cardPointer))
+			{
+				pointedCard = i;
+				it.Menu.VrPointerOverride = cardPointer;
+			}
 
 			material.Vertex.SetUniformBuffer(new UniformBuffers.SpriteVertex(matrix * camera.ViewProjection));
 			material.Fragment.SetUniformBuffer(new UniformBuffers.SpriteFragment(camera));
@@ -392,5 +407,29 @@ public class Overworld : Scene
 			batch.Render(target);
 			batch.Clear();
 		}
+	}
+
+	private static bool TryPointCard(Vec2 point, Target screen, Matrix transform, out Vec2 cardPoint)
+	{
+		cardPoint = default;
+		if (!Matrix.Invert(transform, out var inverse)) return false;
+		float x = point.X / screen.Width * 2 - 1;
+		float y = 1 - point.Y / screen.Height * 2;
+		var near = Vec4.Transform(new Vec4(x, y, 0, 1), inverse);
+		var far = Vec4.Transform(new Vec4(x, y, 1, 1), inverse);
+		if (MathF.Abs(near.W) < 0.00001f || MathF.Abs(far.W) < 0.00001f) return false;
+		var from = new Vec3(near.X, near.Y, near.Z) / near.W;
+		var to = new Vec3(far.X, far.Y, far.Z) / far.W;
+		var direction = to - from;
+		if (MathF.Abs(direction.Y) < 0.00001f) return false;
+		float distance = -from.Y / direction.Y;
+		if (distance < 0) return false;
+		var hit = from + direction * distance;
+		float width = CardWidth / 6.0f / Game.RelativeScale;
+		float height = CardHeight / 6.0f / Game.RelativeScale;
+		float u = hit.X / width + .5f;
+		float v = .5f - hit.Z / height;
+		cardPoint = new(u * CardWidth, v * CardHeight);
+		return u >= 0 && u <= 1 && v >= 0 && v <= 1;
 	}
 }

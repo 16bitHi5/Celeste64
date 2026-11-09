@@ -52,6 +52,26 @@ public class Game : App
 
 	private readonly Stack<Scene> scenes = new();
 	private readonly Target target;
+	private Target? stereoRightTarget;
+	private XrBridge? xr;
+	public System.Numerics.Vector2? VrPointerPosition { get; private set; }
+	private bool vrPointerPressed, vrPointerWasDown;
+	public bool ConsumeVrPointerPress()
+	{
+		bool pressed = vrPointerPressed;
+		vrPointerPressed = false;
+		return pressed;
+	}
+	public bool IsVr => xr != null;
+	public bool QuestControlsEnabled { get; private set; } = true;
+	public void ToggleQuestControls()
+	{
+		QuestControlsEnabled = !QuestControlsEnabled;
+		xr?.SetInputEnabled(QuestControlsEnabled);
+	}
+	private Target[]? xrTargets;
+	private System.Numerics.Vector3? xrReferencePosition;
+	private readonly bool stereoPreview = Environment.GetEnvironmentVariable("CELESTE64_STEREO_PREVIEW") == "1";
 	private readonly Batcher batcher;
 	private Transition transition;
 	private TransitionStep transitionStep = TransitionStep.None;
@@ -69,7 +89,7 @@ public class Game : App
 		target = new(GraphicsDevice, Width, Height, [TextureFormat.Color, TextureFormat.Depth16]);
 		batcher = new(GraphicsDevice);
 
-		GraphicsDevice.VSync = true;
+		GraphicsDevice.VSync = Environment.GetEnvironmentVariable("CELESTE64_VR") != "1";
 		Controls = new(Input, new ControlsConfig());
 
 		// If this isn't stored, the delegate will get GC'd and everything will crash :)
@@ -79,12 +99,21 @@ public class Game : App
 	protected override void Startup()
 	{
 		instance = this;
+		if (Environment.GetEnvironmentVariable("CELESTE64_VR") == "1")
+			xr = new XrBridge(GraphicsDevice);
 		Audio.Init();
 		scenes.Push(new Startup());
 	}
 
 	protected override void Shutdown()
 	{
+		xr?.Dispose();
+		xr = null;
+		if (xrTargets != null)
+			foreach (var eyeTarget in xrTargets) eyeTarget.Dispose();
+		xrTargets = null;
+		stereoRightTarget?.Dispose();
+		stereoRightTarget = null;
 		if (scenes.TryPeek(out var topScene))
 			topScene.Exited();
 
@@ -116,6 +145,20 @@ public class Game : App
 
 	protected override void Update()
 	{
+		vrPointerPressed = false;
+		VrPointerPosition = null;
+		if (xr != null)
+		{
+			var pointer = xr.GetPointer();
+			bool down = pointer.Trigger != 0;
+			if (pointer.Valid != 0 && VrPointerMath.Intersect(pointer.Aim.Position, pointer.Aim.Rotation,
+				pointer.Surface.Position, pointer.Surface.Rotation, out var point))
+			{
+				VrPointerPosition = point * new System.Numerics.Vector2(Width, Height);
+				vrPointerPressed = down && !vrPointerWasDown;
+			}
+			vrPointerWasDown = down;
+		}
 		Audio.Update();
 
 		// toggle mouse camera mode
@@ -317,6 +360,16 @@ public class Game : App
 	protected override void Render()
 	{
 		Window.Clear(Color.Black);
+		if (xr != null && RenderXrFrame())
+			return;
+
+		// Developer preview for checking stereo rendering without an XR headset.
+		// Menus and transitions continue to use the normal single-view renderer.
+		if (stereoPreview && transitionStep == TransitionStep.None && scenes.TryPeek(out var current) && current is World world)
+		{
+			RenderStereoPreview(world);
+			return;
+		}
 
 		if (transitionStep != TransitionStep.Perform && transitionStep != TransitionStep.Hold)
 		{
@@ -342,6 +395,115 @@ public class Game : App
 				batcher.Clear();
 			}
 		}
+	}
+
+	private bool RenderXrFrame()
+	{
+		if (xr == null) return false;
+		bool menuActive = scenes.TryPeek(out var top) && (top is not World || ((World)top).Paused);
+		xr.SetInputOptions(menuActive, Save.Instance.VrGripDash);
+		if (!xr.Begin(out bool shouldRender)) return false;
+		int layerMode = 0;
+		try
+		{
+			if (!shouldRender) return false;
+			var eyes = xr.Eyes;
+			var (renderWidth, renderHeight) = VrGraphics.RenderSize(Save.Instance.VrClearGraphics,
+				Math.Max(eyes[0].Width, eyes[1].Width), Math.Max(eyes[0].Height, eyes[1].Height));
+			if (xrTargets == null || xrTargets[0].Width != renderWidth || xrTargets[0].Height != renderHeight)
+			{
+				if (xrTargets != null)
+					foreach (var oldTarget in xrTargets) oldTarget.Dispose();
+				xrTargets = [new Target(GraphicsDevice, renderWidth, renderHeight, [TextureFormat.Color, TextureFormat.Depth16]),
+					new Target(GraphicsDevice, renderWidth, renderHeight, [TextureFormat.Color, TextureFormat.Depth16])];
+			}
+			xrReferencePosition ??= (eyes[0].Position + eyes[1].Position) / 2;
+			if (scenes.TryPeek(out var current) && current is World world)
+			{
+				layerMode = world.Paused ? 3 : 2;
+				var originalCamera = world.Camera;
+				world.VrReferenceCamera = originalCamera;
+				try
+				{
+					for (int i = 0; i < 2; i++)
+					{
+						var eye = eyes[i];
+						world.Camera = VrCamera.ForEye(originalCamera, eye.Position, eye.Orientation, xrReferencePosition.Value,
+							10, eye.Left, eye.Right, eye.Down, eye.Up, 1, 800);
+						world.Render(xrTargets[i], false);
+						GraphicsDevice.BlitToXrImage(xrTargets[i].Attachments[0], eye.Texture, eye.Width, eye.Height);
+					}
+				}
+				finally { world.Camera = originalCamera; world.VrReferenceCamera = null; }
+				world.RenderVrUi(target);
+				if (world.Paused) DrawVrPointer(target);
+				GraphicsDevice.BlitToXrImage(target.Attachments[0], eyes[2].Texture, eyes[2].Width, eyes[2].Height);
+			}
+			else
+			{
+				// Menus and transitions use a screen positioned in the XR reference space.
+				layerMode = 1;
+				target.Clear(Color.Black, 1, 0, ClearMask.All);
+				if (transitionStep != TransitionStep.Perform && transitionStep != TransitionStep.Hold && scenes.TryPeek(out var scene))
+					scene.Render(target);
+				if (transitionStep != TransitionStep.None && transition.ToBlack != null)
+				{
+					transition.ToBlack.Render(batcher, new Rect(0, 0, target.Width, target.Height));
+					batcher.Render(target);
+					batcher.Clear();
+				}
+				DrawVrPointer(target);
+				GraphicsDevice.BlitToXrImage(target.Attachments[0], eyes[2].Texture, eyes[2].Width, eyes[2].Height);
+			}
+			GraphicsDevice.FlushXrImages();
+			var mirror = scenes.TryPeek(out var shown) && shown is World
+				? xrTargets[0] : target;
+			var mirrorScale = Math.Min(Window.WidthInPixels / (float)mirror.Width, Window.HeightInPixels / (float)mirror.Height);
+			batcher.Image(mirror, Window.SizeInPixels / 2, mirror.Bounds.Size / 2, Vec2.One * mirrorScale, 0, Color.White);
+			batcher.Render(Window);
+			batcher.Clear();
+			return true;
+		}
+		finally { xr.End(layerMode); }
+	}
+
+	private void DrawVrPointer(Target destination)
+	{
+		if (VrPointerPosition is not { } point) return;
+		batcher.Rect(point.X - 3, point.Y - 3, 6, 6, Color.White);
+		batcher.Render(destination);
+		batcher.Clear();
+	}
+
+	private void RenderStereoPreview(World world)
+	{
+		stereoRightTarget ??= new Target(GraphicsDevice, Width, Height, [TextureFormat.Color, TextureFormat.Depth16]);
+		var originalCamera = world.Camera;
+		try
+		{
+			// Temporary 64 mm IPD and a 10 game-units-per-metre scale. Real VR
+			// will replace these values and the FOV with the runtime's eye poses.
+			Camera Eye(float x) => VrCamera.ForEye(originalCamera, new(x, 0, 0), System.Numerics.Quaternion.Identity,
+				System.Numerics.Vector3.Zero, 10, -MathF.PI / 4, MathF.PI / 4, -MathF.PI / 4, MathF.PI / 4, 1, 800);
+			world.Camera = Eye(-0.032f);
+			world.Render(target);
+			world.Camera = Eye(0.032f);
+			world.Render(stereoRightTarget);
+		}
+		finally
+		{
+			world.Camera = originalCamera;
+		}
+
+		float scale = Math.Min(Window.WidthInPixels / (float)(Width * 2), Window.HeightInPixels / (float)Height);
+		var center = Window.SizeInPixels / 2;
+		var halfOffset = new Vec2(Width * scale / 2, 0);
+		batcher.PushSampler(new(TextureFilter.Nearest, TextureWrap.Clamp, TextureWrap.Clamp));
+		batcher.Image(target, center - halfOffset, target.Bounds.Size / 2, Vec2.One * scale, 0, Color.White);
+		batcher.Image(stereoRightTarget, center + halfOffset, stereoRightTarget.Bounds.Size / 2, Vec2.One * scale, 0, Color.White);
+		batcher.PopSampler();
+		batcher.Render(Window);
+		batcher.Clear();
 	}
 
 	private FMOD.RESULT MusicTimelineCallback(FMOD.Studio.EVENT_CALLBACK_TYPE type, IntPtr _event, IntPtr parameters)

@@ -21,7 +21,7 @@ public class Titlescreen : Scene
 		easing = Calc.Approach(easing, 1, Time.Delta / 5.0f);
 		inputDelay = Calc.Approach(inputDelay, 0, Time.Delta);
 
-		if (Controls.Confirm.Pressed && !Game.Instance.IsMidTransition)
+		if ((Controls.Confirm.Pressed || Game.Instance.ConsumeVrPointerPress()) && !Game.Instance.IsMidTransition)
 		{
 			Audio.Play(Sfx.main_menu_first_input);
 			Game.Instance.Goto(new Transition()

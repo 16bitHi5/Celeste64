@@ -37,6 +37,12 @@ public class Menu(Controls controls)
 	{
         public override bool Selectable => false;
     }
+
+	public class Info(string label) : Item
+	{
+		public override string Label => label;
+		public override bool Selectable => false;
+	}
 	
 	public class Slider: Item
 	{
@@ -162,6 +168,12 @@ public class Menu(Controls controls)
 	public int Index;
 	public Func<string> Title = () => string.Empty;
 	public bool Focused = true;
+	public bool EnableVrPointer;
+	public bool UseVrPointerOverride;
+	public Vec2? VrPointerOverride;
+	private bool pointerSelection;
+	public bool ConsumePointerSelection() { bool selected = pointerSelection; pointerSelection = false; return selected; }
+	private Vec2 lastDrawCenter;
 
 	private readonly List<Item> items = [];
 	private readonly Stack<Menu> submenus = [];
@@ -229,6 +241,25 @@ public class Menu(Controls controls)
 	{
 		if (items.Count > 0)
 		{
+			var game = Game.Instance;
+			var hovered = -1;
+			var menuPointer = UseVrPointerOverride ? VrPointerOverride : game.VrPointerPosition;
+			if (EnableVrPointer && menuPointer is { } pointer)
+			{
+				var font = Language.Current.SpriteFont;
+				float y = lastDrawCenter.Y - Size.Y / 2;
+				if (!string.IsNullOrEmpty(Title())) y += font.LineHeight * TitleScale + SpacerHeight + Spacing;
+				for (int i = 0; i < items.Count; i++)
+				{
+					var label = items[i].Label;
+					float height = string.IsNullOrEmpty(label) ? SpacerHeight : font.LineHeight;
+					if (items[i].Selectable && pointer.Y >= y && pointer.Y < y + height &&
+						MathF.Abs(pointer.X - lastDrawCenter.X) <= font.WidthOf(label) / 2 + 12)
+						hovered = i;
+					y += height + (string.IsNullOrEmpty(label) ? 0 : Spacing);
+				}
+				if (hovered >= 0) Index = hovered;
+			}
 			var was = Index;
 			var step = 0;
 
@@ -252,8 +283,19 @@ public class Menu(Controls controls)
 	
 			if (Controls.Confirm.Pressed && items[Index].Pressed())
 				Controls.Consume();
+			else if (hovered >= 0 && game.ConsumeVrPointerPress())
+			{
+				if (!items[Index].Pressed())
+				{
+					if (items[Index] is Slider or MultiSelect or LocalizedMultiSelect)
+						items[Index].Slide(pointerSide(menuPointer!.Value.X));
+					else pointerSelection = true;
+				}
+			}
 		}
 	}
+
+	private int pointerSide(float x) => x < lastDrawCenter.X ? -1 : 1;
 
 	public void Update(in Time time)
 	{
@@ -317,6 +359,10 @@ public class Menu(Controls controls)
 	
 	public void Render(Batcher batch, Vec2 position)
 	{
+		CurrentMenu.lastDrawCenter = position;
+		CurrentMenu.EnableVrPointer = EnableVrPointer;
+		CurrentMenu.UseVrPointerOverride = UseVrPointerOverride;
+		CurrentMenu.VrPointerOverride = VrPointerOverride;
 		batch.PushMatrix(position);
 		CurrentMenu.RenderItems(batch);
 		batch.PopMatrix();

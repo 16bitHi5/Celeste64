@@ -210,8 +210,11 @@ public class Cutscene : Actor, IHaveUI
 		const float EaseOffset = 32 * Game.RelativeScale;
 		const float Padding = 8 * Game.RelativeScale;
 
-		batch.Rect(new Rect(bounds.X, bounds.Y, bounds.Width, BarSize * ease), Color.Black);
-		batch.Rect(new Rect(bounds.X, bounds.Bottom - BarSize * ease, bounds.Width, BarSize * ease), Color.Black);
+		if (!Game.Instance.IsVr)
+		{
+			batch.Rect(new Rect(bounds.X, bounds.Y, bounds.Width, BarSize * ease), Color.Black);
+			batch.Rect(new Rect(bounds.X, bounds.Bottom - BarSize * ease, bounds.Width, BarSize * ease), Color.Black);
+		}
 
 		if (saying.Ease > 0 && !string.IsNullOrEmpty(saying.Text) && !World.Paused)
 		{

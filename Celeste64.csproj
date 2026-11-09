@@ -13,9 +13,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="FosterFramework" Version="0.4.2" />
+    <ProjectReference Include="Vendor/Foster/Framework/Foster.Framework.csproj" />
     <PackageReference Include="SharpGLTF.Runtime" Version="1.0.5" />
     <PackageReference Include="Sledge.Formats.Map" Version="1.2.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Vendor/**" />
+    <Compile Remove="Tests/**" />
+    <EmbeddedResource Remove="Vendor/**" />
+    <None Remove="Vendor/**" />
   </ItemGroup>
 
   <PropertyGroup Condition="($(RuntimeIdentifier) == '' and $([MSBuild]::IsOSPlatform('Linux'))) or $(RuntimeIdentifier.StartsWith('linux'))">

@@ -11,6 +11,7 @@ public static class Audio
 	private static readonly List<Bank> banks = [];
 	private static readonly Dictionary<string, FMOD.GUID> events = [];
 	private static readonly Dictionary<string, FMOD.GUID> buses = [];
+	private static bool listenerWarningLogged;
 
 	public static void Init()
 	{
@@ -75,22 +76,37 @@ public static class Audio
 
 	public static void SetListener(in Camera camera)
 	{
+		if (!ListenerPose.TryFromCamera(camera, out var position, out var forward, out var up))
+		{
+			if (!listenerWarningLogged) Log.Warning("Skipped an invalid 3D audio listener pose; keeping the last valid pose.");
+			listenerWarningLogged = true;
+			return;
+		}
 		FMOD.ATTRIBUTES_3D attr = new();
-		attr.forward.x = camera.Forward.X;
-		attr.forward.y = camera.Forward.Y;
-		attr.forward.z = camera.Forward.Z;
-		attr.up.x = camera.Up.X;
-		attr.up.y = camera.Up.Y;
-		attr.up.z = camera.Up.Z;
-		attr.position.x = camera.Position.X;
-		attr.position.y = camera.Position.Y;
-		attr.position.z = camera.Position.Z;
+		attr.forward.x = forward.X;
+		attr.forward.y = forward.Y;
+		attr.forward.z = forward.Z;
+		attr.up.x = up.X;
+		attr.up.y = up.Y;
+		attr.up.z = up.Z;
+		attr.position.x = position.X;
+		attr.position.y = position.Y;
+		attr.position.z = position.Z;
 		attr.velocity.x = 0;
 		attr.velocity.y = 0;
 		attr.velocity.z = 0;
 
 		var result = system.setListenerAttributes(0, attr);
-		Check(result);
+		if (result == FMOD.RESULT.ERR_INVALID_PARAM)
+		{
+			if (!listenerWarningLogged) Log.Warning("FMOD rejected the 3D listener pose; keeping the last valid pose.");
+			listenerWarningLogged = true;
+		}
+		else
+		{
+			listenerWarningLogged = false;
+			Check(result);
+		}
 	}
 
 	public static void Update()

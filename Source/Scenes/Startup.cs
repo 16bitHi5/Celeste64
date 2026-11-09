@@ -25,6 +25,12 @@ public class Startup : Scene
 				Save.Instance = Save.Deserialize(File.ReadAllText(saveFile)) ?? new();
 			else
 				Save.Instance = new();
+			if (Game.Instance.IsVr && !Save.Instance.VrGripDashDefaultApplied)
+			{
+				Save.Instance.VrGripDash = true;
+				Save.Instance.VrGripDashDefaultApplied = true;
+				Save.Instance.SaveToFile(Game.UserPath);
+			}
 			Save.Instance.ApplySettings(Game);
 		}
 
