@@ -1143,8 +1143,18 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		else
 			tFootstep = FootstepInterval;
 
-		// start climbing
-		if (Controls.Climb.Down && tClimbCooldown <= 0 && TryClimb())
+		// Tracked hand grabs are exclusive to the experimental first-person view.
+		if (tClimbCooldown <= 0 && TryStartVrHandClimb())
+		{
+			vrHandClimbing = true;
+			stateMachine.State = States.Climbing;
+			return;
+		}
+
+		// Preserve the original climbing behavior for third person and gamepads.
+		bool vrTriggerHeld = Game.Instance.IsVr && Save.Instance.VrFirstPerson &&
+			(Game.Instance.FirstPersonHands.LeftTrigger > .4f || Game.Instance.FirstPersonHands.RightTrigger > .4f);
+		if (!vrTriggerHeld && Controls.Climb.Down && tClimbCooldown <= 0 && TryClimb())
 		{
 			stateMachine.State = States.Climbing;
 			return;
@@ -1430,6 +1440,95 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	private Vec2? climbCornerCameraTo;
 	private int climbInputSign = 1;
 	private float tClimbCooldown = 0;
+	private readonly VrHandClimb vrHandClimb = new();
+	private bool vrHandClimbing;
+
+	private bool TryVrHandWall(XrBridge.Pose pose, bool tracked, float trigger, Camera anchor, Vec3 reference, out WallHit wall)
+	{
+		wall = default;
+		if (!tracked || trigger <= .4f) return false;
+		var hand = Vec3.Transform(Vec3.Zero, VrCamera.TrackedPose(anchor, pose.Position, pose.Rotation, reference, 10));
+		if (!float.IsFinite(hand.X) || !float.IsFinite(hand.Y) || !float.IsFinite(hand.Z)) return false;
+		return World.SolidWallCheckNearest(hand, 3.0f, out wall) && ClimbNormalCheck(wall.Normal);
+	}
+
+	private bool TryStartVrHandClimb()
+	{
+		if (!Game.Instance.IsVr || !Save.Instance.VrFirstPerson || Game.Instance.FirstPersonHandAnchor is not { } anchor ||
+			Game.Instance.FirstPersonHeadReference is not { } reference) return false;
+		var hands = Game.Instance.FirstPersonHands;
+		bool left = TryVrHandWall(hands.Left, hands.LeftValid != 0, hands.LeftTrigger, anchor, reference, out var leftWall);
+		bool right = TryVrHandWall(hands.Right, hands.RightValid != 0, hands.RightTrigger, anchor, reference, out var rightWall);
+		if (!left && !right) return false;
+		var handWall = left ? leftWall : rightWall;
+		// Require the player to be close enough to the same wall to avoid remote grabs.
+		if (!World.SolidWallCheckClosestToNormal(SolidWaistTestPos, 10, handWall.Normal, out var bodyWall) ||
+			!ClimbNormalCheck(bodyWall.Normal) || Vec3.Dot(bodyWall.Normal, handWall.Normal) < .7f) return false;
+		climbingWallNormal = bodyWall.Normal;
+		climbingWallActor = bodyWall.Actor;
+		var moveTo = bodyWall.Point + (Position - SolidWaistTestPos) + bodyWall.Normal * WallPushoutDist;
+		SweepTestMove(moveTo - Position, false);
+		targetFacing = -climbingWallNormal.XY().Normalized();
+		vrHandClimb.Reset();
+		return true;
+	}
+
+	private void UpdateVrHandClimb()
+	{
+		if (!Game.Instance.IsVr || !Save.Instance.VrFirstPerson || Game.Instance.FirstPersonHandAnchor is not { } anchor ||
+			Game.Instance.FirstPersonHeadReference is not { } reference)
+		{
+			stateMachine.State = States.Normal;
+			return;
+		}
+		var hands = Game.Instance.FirstPersonHands;
+		bool leftTouch = TryVrHandWall(hands.Left, hands.LeftValid != 0, hands.LeftTrigger, anchor, reference, out var leftWall)
+			&& Vec3.Dot(leftWall.Normal, climbingWallNormal) > .7f;
+		bool rightTouch = TryVrHandWall(hands.Right, hands.RightValid != 0, hands.RightTrigger, anchor, reference, out var rightWall)
+			&& Vec3.Dot(rightWall.Normal, climbingWallNormal) > .7f;
+		var left = new VrHandClimb.Hand(hands.Left.Position, hands.LeftValid != 0, hands.LeftTrigger > .4f, leftTouch);
+		var right = new VrHandClimb.Hand(hands.Right.Position, hands.RightValid != 0, hands.RightTrigger > .4f, rightTouch);
+		var movement = vrHandClimb.Update(left, right);
+		if (!vrHandClimb.IsGrabbing)
+		{
+			Audio.Play(Sfx.sfx_let_go, Position);
+			stateMachine.State = States.Normal;
+			return;
+		}
+		if (Controls.Jump.ConsumePress())
+		{
+			stateMachine.State = States.Normal;
+			targetFacing = -targetFacing;
+			WallJump();
+			return;
+		}
+		if (dashes > 0 && tDashCooldown <= 0 && Controls.Dash.ConsumePress())
+		{
+			stateMachine.State = States.Dashing;
+			dashes--;
+			return;
+		}
+		velocity = Vec3.Zero;
+		CancelGroundSnap();
+		var basis = VrCamera.TrackedPose(anchor, reference, Quaternion.Identity, reference, 10);
+		var delta = Vec3.TransformNormal(movement * 10, basis);
+		delta -= climbingWallNormal * Vec3.Dot(delta, climbingWallNormal);
+		if (delta.Z < 0 && GroundCheck(out _, out _, out _)) delta.Z = 0;
+		var forward = new Vec3(targetFacing, 0);
+		if (World.Overlaps<SpikeBlock>(SolidWaistTestPos + delta + forward * (ClimbCheckDist + 1))) delta = Vec3.Zero;
+		if (delta.LengthSquared() > 0.000001f) SweepTestMove(delta, false);
+		Model.Play("Climb.Idle");
+		sfxWallSlide?.Stop();
+		// Let the existing ledge hop finish an upward climb when the wall ends.
+		if (delta.Z > 0 && !World.SolidRayCast(SolidWaistTestPos, -climbingWallNormal, ClimbCheckDist + 2, out _))
+		{
+			stateMachine.State = States.Normal;
+			velocity = new(targetFacing * ClimbHopForwardSpeed, ClimbHopUpSpeed);
+			tNoMove = ClimbHopNoMoveTime;
+			tClimbCooldown = .3f;
+			autoJump = false;
+		}
+	}
 
 	private void StClimbingEnter()
 	{
@@ -1443,6 +1542,8 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 
 	private void StClimbingExit()
 	{
+		vrHandClimbing = false;
+		vrHandClimb.Reset();
 		Model.Play("Idle");
 		Model.Rate = 1.0f;
 		climbingWallActor = default;
@@ -1451,6 +1552,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 
 	private void StClimbingUpdate()
 	{
+		if (vrHandClimbing) { UpdateVrHandClimb(); return; }
 		if (!Controls.Climb.Down)
 		{
 			Audio.Play(Sfx.sfx_let_go, Position);

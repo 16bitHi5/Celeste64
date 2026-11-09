@@ -64,6 +64,9 @@ public class Game : App
 	}
 	public bool IsVr => xr != null;
 	public Vec3? FirstPersonViewForward { get; private set; }
+	internal XrBridge.Hands FirstPersonHands { get; private set; }
+	internal Camera? FirstPersonHandAnchor { get; private set; }
+	internal Vec3? FirstPersonHeadReference => xrReferencePosition;
 	public bool QuestControlsEnabled { get; private set; } = true;
 	public void ToggleQuestControls()
 	{
@@ -403,11 +406,11 @@ public class Game : App
 		if (xr == null) return false;
 		bool menuActive = scenes.TryPeek(out var top) && (top is not World || ((World)top).Paused);
 		xr.SetInputOptions(menuActive, Save.Instance.VrGripDash, Save.Instance.VrFirstPerson);
-		if (!xr.Begin(out bool shouldRender)) return false;
+		if (!xr.Begin(out bool shouldRender)) { FirstPersonHands = default; FirstPersonHandAnchor = null; return false; }
 		int layerMode = 0;
 		try
 		{
-			if (!shouldRender) return false;
+			if (!shouldRender) { FirstPersonHands = default; FirstPersonHandAnchor = null; return false; }
 			var eyes = xr.Eyes;
 			var (renderWidth, renderHeight) = VrGraphics.RenderSize(Save.Instance.VrClearGraphics,
 				Math.Max(eyes[0].Width, eyes[1].Width), Math.Max(eyes[0].Height, eyes[1].Height));
@@ -428,8 +431,14 @@ public class Game : App
 				var renderAnchor = firstPerson ? VrCamera.FirstPersonAnchor(originalCamera, player!.Position, player.Forward) : originalCamera;
 				world.VrReferenceCamera = renderAnchor;
 				world.VrFirstPersonRendering = firstPerson;
-				if (firstPerson) { world.VrTrackedHands = xr.GetHands(); world.VrHeadReference = xrReferencePosition.Value; }
-				if (!firstPerson) FirstPersonViewForward = null;
+				if (firstPerson)
+				{
+					FirstPersonHands = xr.GetHands();
+					FirstPersonHandAnchor = renderAnchor;
+					world.VrTrackedHands = FirstPersonHands;
+					world.VrHeadReference = xrReferencePosition.Value;
+				}
+				else { FirstPersonViewForward = null; FirstPersonHands = default; FirstPersonHandAnchor = null; }
 				try
 				{
 					for (int i = 0; i < 2; i++)
@@ -468,6 +477,12 @@ public class Game : App
 				? xrTargets[0] : target;
 			var mirrorScale = Math.Min(Window.WidthInPixels / (float)mirror.Width, Window.HeightInPixels / (float)mirror.Height);
 			batcher.Image(mirror, Window.SizeInPixels / 2, mirror.Bounds.Size / 2, Vec2.One * mirrorScale, 0, Color.White);
+			if (shown is World)
+			{
+				// The HUD/dialogue is a separate XR layer; composite it into the desktop mirror too.
+				var uiScale = Math.Min(mirror.Width * mirrorScale / target.Width, mirror.Height * mirrorScale / target.Height);
+				batcher.Image(target, Window.SizeInPixels / 2, target.Bounds.Size / 2, Vec2.One * uiScale, 0, Color.White);
+			}
 			batcher.Render(Window);
 			batcher.Clear();
 			return true;

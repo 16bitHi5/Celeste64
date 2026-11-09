@@ -26,7 +26,7 @@ internal sealed class XrBridge : IDisposable
     [StructLayout(LayoutKind.Sequential)]
     internal struct Pointer { public Pose Aim, Surface; public int Valid, Trigger; }
     [StructLayout(LayoutKind.Sequential)]
-    internal struct Hands { public Pose Left, Right; public int LeftValid, RightValid; }
+    internal struct Hands { public Pose Left, Right; public int LeftValid, RightValid; public float LeftTrigger, RightTrigger; }
 
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern nint CelesteXR_New(nint device, nint instance, ulong system);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern int CelesteXR_Init(nint bridge);

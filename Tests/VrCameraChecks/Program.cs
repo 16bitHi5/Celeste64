@@ -90,6 +90,32 @@ if (hands.Left.Indices.Length != 132 || hands.Right.Indices.Length != 132 ||
     throw new Exception("Original player hand triangles were not separated correctly.");
 Console.WriteLine("Original left and right hand mesh extraction checks passed.");
 
+var climber = new VrHandClimb();
+var idle = new VrHandClimb.Hand(Vector3.Zero, true, false, false);
+var leftGrab = new VrHandClimb.Hand(new(0, 1, 0), true, true, true);
+Near(climber.Update(leftGrab, idle), Vector3.Zero, "initial grab");
+if (!climber.IsGrabbing) throw new Exception("A hand touching a wall should grab it.");
+var leftPull = leftGrab with { Position = new(0, .9f, 0), TouchingWall = false };
+Near(climber.Update(leftPull, idle), new(0, .1f, 0), "left hand pull");
+var rightGrab = new VrHandClimb.Hand(new(.2f, 1, 0), true, true, true);
+climber.Update(leftPull, rightGrab);
+var rightPull = rightGrab with { Position = new(.2f, .9f, 0), TouchingWall = false };
+Near(climber.Update(idle, rightPull), new(0, .1f, 0), "switch to right hand");
+for (int i = 0; i < 10000; i++) climber.Update(idle, rightPull);
+if (!climber.IsGrabbing) throw new Exception("A held hand must not expire with time.");
+Near(climber.Update(idle, rightPull with { Position = new(.2f, 5, 0) }), Vector3.Zero, "tracking jump protection");
+climber.Update(idle, idle);
+if (climber.IsGrabbing) throw new Exception("Both released hands must let go.");
+climber.Update(idle, rightGrab with { TouchingWall = false });
+if (climber.IsGrabbing) throw new Exception("A hand away from a wall must not grab.");
+Console.WriteLine("Independent hand grabs, pulls, switching, unlimited hold, and tracking checks passed.");
+
+var bridgeType = typeof(Game).Assembly.GetType("Celeste64.XrBridge")!;
+var nativeHandsType = bridgeType.GetNestedType("Hands", System.Reflection.BindingFlags.NonPublic)!;
+if (System.Runtime.InteropServices.Marshal.SizeOf(nativeHandsType) != 72)
+    throw new Exception("The managed tracked-hands layout does not match the native bridge.");
+Console.WriteLine("Tracked-hands native layout check passed.");
+
 if (args.Contains("--audio-integration"))
 {
     Audio.Init();

@@ -14,7 +14,8 @@
 
 typedef struct { float px,py,pz,qx,qy,qz,qw,left,right,down,up; int32_t width,height; void *texture; } CelesteEye;
 typedef struct { XrPosef aim, surface; int32_t valid, trigger; } CelestePointer;
-typedef struct { XrPosef left, right; int32_t leftValid, rightValid; } CelesteHands;
+typedef struct { XrPosef left, right; int32_t leftValid, rightValid; float leftTrigger, rightTrigger; } CelesteHands;
+SDL_COMPILE_TIME_ASSERT(CelesteHandsSize, sizeof(CelesteHands) == 72);
 typedef struct { XrSwapchain handle; SDL_GPUTexture **images; uint32_t image; int acquired; XrExtent2Di size; } EyeSwap;
 typedef struct {
     SDL_GPUDevice *device; XrInstance instance; XrSystemId system; XrSession session; XrSpace space;
@@ -102,6 +103,7 @@ static void set_input(Bridge *b, int enabled) {
     XrActionStateBoolean jump={XR_TYPE_ACTION_STATE_BOOLEAN}, dash={XR_TYPE_ACTION_STATE_BOOLEAN}, pause={XR_TYPE_ACTION_STATE_BOOLEAN}, select={XR_TYPE_ACTION_STATE_BOOLEAN};
     XrActionStateFloat trigger={XR_TYPE_ACTION_STATE_FLOAT}, leftTrigger={XR_TYPE_ACTION_STATE_FLOAT}, grip={XR_TYPE_ACTION_STATE_FLOAT};
     b->pointer.trigger=0; b->pointer.valid=0;
+    b->hands.leftTrigger=0; b->hands.rightTrigger=0;
     if(enabled && b->focused) {
         XrActiveActionSet active={b->actionSet,XR_NULL_PATH}; XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO}; sync.countActiveActionSets=1; sync.activeActionSets=&active;
         if(XR_SUCCEEDED(b->syncActions(b->session,&sync))) {
@@ -111,6 +113,10 @@ static void set_input(Bridge *b, int enabled) {
             get.action=b->pause; b->getBoolean(b->session,&get,&pause); get.action=b->select; b->getBoolean(b->session,&get,&select);
             get.action=b->trigger; b->getFloat(b->session,&get,&trigger); get.action=b->leftTrigger; b->getFloat(b->session,&get,&leftTrigger); get.action=b->grip; b->getFloat(b->session,&get,&grip);
             b->pointer.trigger=trigger.isActive && trigger.currentState>0.5f;
+            if (b->firstPerson && !b->menuActive) {
+                b->hands.leftTrigger=leftTrigger.isActive ? leftTrigger.currentState : 0;
+                b->hands.rightTrigger=trigger.isActive ? trigger.currentState : 0;
+            }
         }
     }
     SDL_SetJoystickVirtualAxis(b->joystick,0,(Sint16)(SDL_clamp(move.currentState.x,-1.0f,1.0f)*32767));
