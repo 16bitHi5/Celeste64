@@ -40,7 +40,7 @@ public class Overworld : Scene
 			}
 		}
 
-		public void Redraw(Batcher batch, float shine)
+		public void Redraw(Batcher batch, float shine, bool showPointer = false)
 		{
 			const float Padding = 16 * Game.RelativeScale;
 
@@ -117,6 +117,11 @@ public class Overworld : Scene
 					Color.White * shine * 0.30f);
 			}
 
+			if (showPointer && Menu.VrPointerOverride is { } pointer)
+			{
+				batch.Circle(pointer, 7, 12, Color.Black);
+				batch.Circle(pointer, 4, 12, Color.White);
+			}
 			batch.PopSampler();
 			batch.Render(Target);
 		}
@@ -137,6 +142,7 @@ public class Overworld : Scene
 	private float selectedEase = 0;
 	private float cameraCloseUpEase = 0;
 	private Vec2 wobble = new Vec2(0, -1);
+	private readonly VrCardDrag vrCardDrag = new();
 	private readonly List<Entry> entries = [];
 	private readonly Batcher batch;
 	private readonly Mesh<SpriteVertex> mesh;
@@ -189,7 +195,19 @@ public class Overworld : Scene
 	public override void Update()
 	{
 		slide += (index - slide) * (1 - MathF.Pow(.001f, Time.Delta));
-		wobble += (Controls.Camera.Value - wobble) * (1 - MathF.Pow(.1f, Time.Delta));
+		int tappedVrCard = -1;
+		var pointer = Game.Instance.VrMenuPointer;
+		bool vrPointerValid = Game.Instance.IsVr && !Game.Instance.IsMidTransition && pointer.Valid != 0;
+		var pointerDirection = vrPointerValid ? Vec3.Transform(-Vec3.UnitZ, pointer.Aim.Rotation) : Vec3.Zero;
+		if (vrCardDrag.Active && (!vrPointerValid || state != States.Selecting)) vrCardDrag.Cancel();
+		if (state == States.Selecting && vrPointerValid && !vrCardDrag.Active && pointedCard >= 0 && Game.Instance.ConsumeVrPointerPress())
+			vrCardDrag.Begin(pointedCard, pointerDirection, wobble);
+		if (vrCardDrag.Active)
+		{
+			if (pointer.Trigger != 0) wobble = vrCardDrag.Update(pointerDirection);
+			else tappedVrCard = vrCardDrag.End();
+		}
+		else wobble += (Controls.Camera.Value - wobble) * (1 - MathF.Pow(.1f, Time.Delta));
 		Calc.Approach(ref cameraCloseUpEase, state == States.Entering ? 1 : 0, Time.Delta);
 		Calc.Approach(ref selectedEase, state != States.Selecting ? 1 : 0, 8 * Time.Delta);
 
@@ -219,10 +237,10 @@ public class Overworld : Scene
 			if (was != index)
 				Audio.Play(Sfx.ui_move);
 
-			bool clickedCard = pointedCard >= 0 && Game.Instance.ConsumeVrPointerPress();
+			bool clickedCard = Game.Instance.IsVr ? tappedVrCard >= 0 : pointedCard >= 0 && Game.Instance.ConsumeVrPointerPress();
 			if (Controls.Confirm.ConsumePress() || clickedCard)
 			{
-				if (clickedCard) index = pointedCard;
+				if (clickedCard) index = Game.Instance.IsVr ? tappedVrCard : pointedCard;
 				state = States.Selected;
 				entries[index].Menu.Index = 0;
 				Audio.Play(Sfx.main_menu_postcard_flip);
@@ -234,7 +252,7 @@ public class Overworld : Scene
 				{
 					Mode = Transition.Modes.Replace,
 					Scene = () => new Titlescreen(),
-					ToBlack = new AngledWipe(),
+					ToBlack = Game.Instance.IsVr ? null : new AngledWipe(),
 					ToPause = true
 				});
 			}
@@ -296,6 +314,107 @@ public class Overworld : Scene
 		}
 	}
 
+	private Matrix CardTransform(int i)
+	{
+		var it = entries[i];
+		var shift = Ease.Cube.In(1.0f - it.HighlightEase) * 30 - Ease.Cube.In(it.SelectionEase) * 20;
+		if (i != index) shift += Ease.Cube.InOut(selectedEase) * 50;
+		var position = new Vec3((i - slide) * 60, shift, 0);
+		var rotation = Ease.Cube.InOut(it.SelectionEase);
+		return Matrix.CreateScale(new Vec3(it.SelectionEase >= 0.50f ? -1 : 1, 1, 1)) *
+			Matrix.CreateRotationX(wobble.Y * it.HighlightEase) *
+			Matrix.CreateRotationZ(wobble.X * it.HighlightEase) *
+			Matrix.CreateRotationZ((state == States.Entering ? -1 : 1) * rotation * MathF.PI) *
+			Matrix.CreateTranslation(position);
+	}
+
+	internal Camera VrCamera(Target target) => new()
+	{
+		Target = target,
+		Position = new Vec3(0, -100 + 30 * Ease.Cube.In(cameraCloseUpEase), 0),
+		LookAt = Vec3.Zero,
+		NearPlane = 1,
+		FarPlane = 1000
+	};
+
+	internal bool VrUsesFlatPointer => state == States.Restarting;
+
+	internal void PrepareVrFrame(Camera anchor, Vec3 reference, XrBridge.Pointer pointer)
+	{
+		pointedCard = -1;
+		foreach (var entry in entries) entry.Menu.VrPointerOverride = null;
+		if (pointer.Valid != 0 && !VrUsesFlatPointer && state != States.Entering)
+		{
+			var pose = Celeste64.VrCamera.TrackedPose(anchor, pointer.Aim.Position, pointer.Aim.Rotation, reference, 10);
+			var origin = Vec3.Transform(Vec3.Zero, pose);
+			var direction = Vec3.TransformNormal(-Vec3.UnitZ, pose).Normalized();
+			float nearest = float.MaxValue;
+			float width = CardWidth / 6.0f / Game.RelativeScale;
+			float height = CardHeight / 6.0f / Game.RelativeScale;
+			for (int i = 0; i < entries.Count; i++)
+			{
+				if (VrCardInteraction.TryIntersect(origin, direction, CardTransform(i), width, height, out var uv, out float distance) && distance < nearest)
+				{
+					if (pointedCard >= 0) entries[pointedCard].Menu.VrPointerOverride = null;
+					pointedCard = i;
+					nearest = distance;
+					entries[i].Menu.VrPointerOverride = new Vec2(uv.X * CardWidth, uv.Y * CardHeight);
+				}
+			}
+		}
+		foreach (var entry in entries)
+		{
+			var flip = entry.SelectionEase > .5f ? 1 : -1;
+			var shine = MathF.Max(0, MathF.Max(-wobble.X, flip * wobble.Y)) * entry.HighlightEase;
+			entry.Redraw(batch, shine, true);
+			batch.Clear();
+		}
+	}
+
+	internal void RenderVrEye(Target target, Camera camera)
+	{
+		target.Clear(0x0b090d, 1, 0, ClearMask.All);
+		camera.Target = target;
+		for (int i = 0; i < entries.Count; i++)
+		{
+			material.Vertex.SetUniformBuffer(new UniformBuffers.SpriteVertex(CardTransform(i) * camera.ViewProjection));
+			material.Fragment.SetUniformBuffer(new UniformBuffers.SpriteFragment(camera));
+			material.Fragment.Samplers[0] = new(entries[i].Target, new TextureSampler(TextureFilter.Linear, TextureWrap.Clamp, TextureWrap.Clamp));
+			GraphicsDevice.Draw(new DrawCommand(target, mesh, material)
+			{
+				DepthTestEnabled = true, DepthWriteEnabled = true, DepthCompare = DepthCompare.Less, CullMode = CullMode.None
+			});
+		}
+		if (cameraCloseUpEase > 0)
+		{
+			batch.Rect(new Rect(0, 0, target.Width, target.Height), Color.Black * Ease.Cube.In(cameraCloseUpEase));
+			batch.Render(target);
+			batch.Clear();
+		}
+	}
+
+	internal void RenderVrUi(Target target)
+	{
+		target.Clear(Color.Transparent);
+		var bounds = target.Bounds;
+		if (state == States.Restarting)
+		{
+			batch.Rect(bounds, Color.Black * .9f);
+			restartConfirmMenu.Render(batch, bounds.Center);
+		}
+		else if (state == States.Selecting)
+			UI.Text(batch, "HOLD TRIGGER + MOVE TO TILT", bounds.TopCenter + new Vec2(0, 8), new Vec2(.5f, 0), Color.White);
+		if (state != States.Entering)
+		{
+			var at = bounds.BottomRight + new Vec2(-16, -4) * Game.RelativeScale + new Vec2(0, -UI.PromptSize);
+			UI.Prompt(batch, Controls.GetPrompt(Controls.Cancel), Loc.Str(state == States.Selecting ? "back" : "cancel"), at, out var width, 1);
+			at.X -= width + 8 * Game.RelativeScale;
+			UI.Prompt(batch, Controls.GetPrompt(Controls.Confirm), Loc.Str("confirm"), at, out _, 1);
+		}
+		batch.Render(target);
+		batch.Clear();
+	}
+
 	public override void Render(Target target)
 	{
 		target.Clear(0x0b090d, 1, 0, ClearMask.All);
@@ -323,17 +442,7 @@ public class Overworld : Scene
 		for (int i = 0; i < entries.Count; i ++)
 		{
 			var it = entries[i];
-			var shift = Ease.Cube.In(1.0f - it.HighlightEase) * 30 - Ease.Cube.In(it.SelectionEase) * 20;
-			if (i != index)
-				shift += Ease.Cube.InOut(selectedEase) * 50;
-			var position = new Vec3((i - slide) * 60, shift, 0);
-			var rotation = Ease.Cube.InOut(it.SelectionEase);
-			var matrix = 
-				Matrix.CreateScale(new Vec3(it.SelectionEase >= 0.50f ? -1 : 1, 1, 1)) *
-				Matrix.CreateRotationX(wobble.Y * it.HighlightEase) *
-				Matrix.CreateRotationZ(wobble.X * it.HighlightEase) *
-				Matrix.CreateRotationZ((state == States.Entering ? -1 : 1) * rotation * MathF.PI) *
-				Matrix.CreateTranslation(position);
+			var matrix = CardTransform(i);
 
 			it.Menu.VrPointerOverride = null;
 			if (Game.Instance.VrPointerPosition is { } pointer &&

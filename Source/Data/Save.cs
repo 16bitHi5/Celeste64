@@ -72,6 +72,8 @@ public class Save
 	public bool VrClearGraphics { get; set; } = true;
 	/// <summary>Use the experimental eye-level view while playing in VR.</summary>
 	public bool VrFirstPerson { get; set; } = false;
+	/// <summary>Use the movement stick while holding a trigger for first-person climbing.</summary>
+	public bool VrFirstPersonStickClimb { get; set; } = false;
 
 	/// <summary>
 	/// 0-10 Music volume level

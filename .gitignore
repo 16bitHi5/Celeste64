@@ -3,6 +3,7 @@
 bin
 obj
 Artifacts/
+CelesteVR.log
 *.user
 Content/Map_Test/autosave
 Content/Maps/autosave

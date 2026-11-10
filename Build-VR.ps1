@@ -35,6 +35,7 @@ $output = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } el
 if ($LASTEXITCODE -ne 0) { throw 'Celeste build failed.' }
 Copy-Item (Join-Path $sdlBuild 'Release\SDL3.dll') $output -Force
 Copy-Item (Join-Path $bridgeBuild 'Release\CelesteXR.dll') $output -Force
+Copy-Item (Join-Path $bridgeBuild 'Release\CelesteVRLauncher.exe') (Join-Path $output 'Start Celeste VR.exe') -Force
 Copy-Item (Join-Path $root 'Start-VR.cmd') $output -Force
 # The upstream DXIL shaders fail D3D12 stage linkage on this machine. Compile
 # the shipped HLSL directly for this build, without changing the game assets.

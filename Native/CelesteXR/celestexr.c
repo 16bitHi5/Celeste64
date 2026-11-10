@@ -37,6 +37,7 @@ typedef struct {
     SDL_JoystickID joystickId; SDL_Joystick *joystick; int inputEnabled, focused, menuActive, gripDash, firstPerson;
     EyeSwap eye[3]; XrView views[2]; XrTime displayTime; int running, frameBegun, shouldRender;
     char error[256]; int loggedFrame, flatLast; XrPosef flatPose;
+    Uint64 rateStart; unsigned int submittedFrames; XrDuration displayPeriod;
 } Bridge;
 
 static void fail(Bridge *b, const char *name, XrResult result) { SDL_snprintf(b->error, sizeof(b->error), "%s failed (%d)", name, (int)result); }
@@ -204,7 +205,7 @@ API int CelesteXR_BeginFrame(Bridge *b, CelesteEye *out, int *render) {
     r=b->waitFrame(b->session,&wi,&state); if(XR_FAILED(r)){fail(b,"xrWaitFrame",r);return -1;}
     XrFrameBeginInfo bi={XR_TYPE_FRAME_BEGIN_INFO};
     r=b->beginFrame(b->session,&bi); if(XR_FAILED(r)){fail(b,"xrBeginFrame",r);return -1;}
-    b->frameBegun=1; b->displayTime=state.predictedDisplayTime; b->shouldRender=0; *render=0;
+    b->frameBegun=1; b->displayTime=state.predictedDisplayTime; b->displayPeriod=state.predictedDisplayPeriod; b->shouldRender=0; *render=0;
     b->hands.leftValid=b->hands.rightValid=0;
     if(b->firstPerson && b->inputEnabled && b->focused) {
         XrAction actions[2]={b->leftHand,b->rightHand}; XrSpace spaces[2]={b->leftHandSpace,b->rightHandSpace};
@@ -252,9 +253,11 @@ API int CelesteXR_BeginFrame(Bridge *b, CelesteEye *out, int *render) {
     b->shouldRender=1; *render=1; return 1;
 }
 /* mode: 0 projection, 1 menu only, 2 gameplay with HUD, 3 paused gameplay */
-API int CelesteXR_EndFrame(Bridge *b, int mode) {
+API int CelesteXR_EndFrame(Bridge *b, int mode, int imagesReady) {
     if(!b || !b->frameBegun) return 0;
-    SDL_WaitForGPUIdle(b->device);
+    /* The managed renderer normally waits for its upload and render fences.
+       Retain the full idle wait as a fallback for errors or interrupted frames. */
+    if (!imagesReady) SDL_WaitForGPUIdle(b->device);
     for(int i=0;i<3;i++) if(b->eye[i].acquired) { XrSwapchainImageReleaseInfo ri={XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; b->release(b->eye[i].handle,&ri); b->eye[i].acquired=0; }
     XrCompositionLayerProjectionView pv[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
     for(int i=0;i<2;i++){pv[i].pose=b->views[i].pose;pv[i].fov=b->views[i].fov;pv[i].subImage.swapchain=b->eye[i].handle;pv[i].subImage.imageRect.extent=b->eye[i].size;}
@@ -271,11 +274,29 @@ API int CelesteXR_EndFrame(Bridge *b, int mode) {
     const XrCompositionLayerBaseHeader *layers[2]={(const XrCompositionLayerBaseHeader*)&layer, (const XrCompositionLayerBaseHeader*)&quad};
     if(mode==1) layers[0]=(const XrCompositionLayerBaseHeader*)&quad;
     XrFrameEndInfo ei={XR_TYPE_FRAME_END_INFO}; ei.displayTime=b->displayTime;ei.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;ei.layerCount=b->shouldRender?(mode>=2?2:1):0;ei.layers=b->shouldRender?layers:NULL;
-    XrResult r=b->endFrame(b->session,&ei);b->frameBegun=0;if(XR_FAILED(r)){fail(b,"xrEndFrame",r);return 0;}return 1;
+    XrResult r=b->endFrame(b->session,&ei);b->frameBegun=0;
+    if(XR_FAILED(r)){fail(b,"xrEndFrame",r);return 0;}
+    if (b->shouldRender) {
+        Uint64 now = SDL_GetTicksNS();
+        if (!b->rateStart) b->rateStart = now;
+        else b->submittedFrames++;
+        if (now - b->rateStart >= 5000000000ULL) {
+            double seconds = (double)(now - b->rateStart) / 1000000000.0;
+            double predictedHz = b->displayPeriod > 0 ? 1000000000.0 / (double)b->displayPeriod : 0;
+            SDL_Log("CelesteXR frame rate: %.1f submitted fps, runtime predicted cadence: %.1f Hz (%.1f s)",
+                b->submittedFrames / seconds, predictedHz, seconds);
+            b->rateStart = now;
+            b->submittedFrames = 0;
+        }
+    } else {
+        b->rateStart = 0;
+        b->submittedFrames = 0;
+    }
+    return 1;
 }
 API void CelesteXR_Destroy(Bridge *b) {
     if(!b) return;
-    if(b->frameBegun) { b->shouldRender=0; CelesteXR_EndFrame(b,0); }
+    if(b->frameBegun) { b->shouldRender=0; CelesteXR_EndFrame(b,0,0); }
     if(b->device) SDL_WaitForGPUIdle(b->device);
     for(int i=0;i<3;i++) if(b->eye[i].handle) SDL_DestroyGPUXRSwapchain(b->device,b->eye[i].handle,b->eye[i].images);
     if(b->space && b->destroySpace) b->destroySpace(b->space);

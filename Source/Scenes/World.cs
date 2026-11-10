@@ -12,6 +12,7 @@ public class World : Scene
 	// Shared centre camera keeps VR billboards fixed in the same place for both eyes.
 	public Camera? VrReferenceCamera;
 	public bool VrFirstPersonRendering;
+	internal bool VrCollectionRendering;
 	internal XrBridge.Hands VrTrackedHands;
 	internal Vec3 VrHeadReference;
 	internal Vec3 VrHeadWorldPosition;
@@ -133,26 +134,19 @@ public class World : Scene
 			pauseMenu.Add(new Menu.Submenu(() => Loc.Str("PauseOptions"), pauseMenu, optionsMenu));
 			if (Game.Instance.IsVr)
 			{
-				Menu vrControls = new(Controls) { Title = () => "VR CONTROLS" };
-				vrControls.Add(new Menu.Toggle("Quest Touch", Game.Instance.ToggleQuestControls, () => Game.Instance.QuestControlsEnabled));
-				vrControls.Add(new Menu.Toggle("Both grips dash", () => { Save.Instance.VrGripDash = !Save.Instance.VrGripDash; Save.Instance.SaveToFile(Game.UserPath); }, () => Save.Instance.VrGripDash));
-				vrControls.Add(new Menu.Info("Left stick: move / menu"));
-				vrControls.Add(new Menu.Info("Right stick: camera"));
-				vrControls.Add(new Menu.Info("A: jump / confirm"));
-				vrControls.Add(new Menu.Info("B: dash / back"));
-				vrControls.Add(new Menu.Info("Right trigger: climb / select"));
-				vrControls.Add(new Menu.Info("X: pause   Y: select"));
-				vrControls.Add(new Menu.Info("Xbox works at the same time"));
-				vrControls.Add(new Menu.Info("Use Xbox to turn Quest back on"));
-				pauseMenu.Add(new Menu.Submenu("VR Controls", pauseMenu, vrControls));
-				Menu vrView = new(Controls) { Title = () => "VR VIEW" };
-				vrView.Add(new Menu.MultiSelect("View", ["Third person", "First person"],
+				Menu vrControls = new(Controls) { CustomLayout = new VrControlsLayout() };
+				vrControls.Add(new Menu.MultiSelect("CONTROLLER", ["QUEST", "GAMEPAD"],
+					() => VrControlsLayout.ShowGamepad ? 1 : 0,
+					index => VrControlsLayout.ShowGamepad = index == 1));
+				vrControls.Add(new Menu.MultiSelect("VIEW", ["THIRD PERSON", "FIRST PERSON"],
 					() => Save.Instance.VrFirstPerson ? 1 : 0,
 					index => { Save.Instance.VrFirstPerson = index == 1; Save.Instance.SaveToFile(Game.UserPath); }));
-				vrView.Add(new Menu.Info("First person is experimental"));
-				vrView.Add(new Menu.Info("Either trigger: climb"));
-				vrView.Add(new Menu.Info("Tracked hands: experimental"));
-				pauseMenu.Add(new Menu.Submenu("VR View", pauseMenu, vrView));
+				vrControls.Add(new Menu.MultiSelect("FP CLIMB", ["HANDS", "STICK"],
+					() => Save.Instance.VrFirstPersonStickClimb ? 1 : 0,
+					index => { Save.Instance.VrFirstPersonStickClimb = index == 1; Save.Instance.SaveToFile(Game.UserPath); }));
+				vrControls.Add(new Menu.Toggle("GRIP DASH", () => { Save.Instance.VrGripDash = !Save.Instance.VrGripDash; Save.Instance.SaveToFile(Game.UserPath); }, () => Save.Instance.VrGripDash));
+				vrControls.Add(new Menu.Toggle("QUEST TOUCH", Game.Instance.ToggleQuestControls, () => Game.Instance.QuestControlsEnabled));
+				pauseMenu.Add(new Menu.Submenu("VR Controls", pauseMenu, vrControls));
 				Menu vrGraphics = new(Controls) { Title = () => "VR GRAPHICS" };
 				vrGraphics.Add(new Menu.MultiSelect("Resolution", ["Retro", "Clear"],
 					() => Save.Instance.VrClearGraphics ? 1 : 0,
@@ -476,6 +470,26 @@ public class World : Scene
 		}
 	}
 
+	/// <summary>Keep the headset on the player's side of nearby solid geometry.</summary>
+	internal Vec3 ConstrainVrHead(Vec3 anchor, Vec3 head)
+	{
+		const float radius = 1.5f;
+		var delta = head - anchor;
+		float distance = delta.Length();
+		if (!float.IsFinite(distance)) return anchor;
+		if (distance > .0001f && SolidRayCast(anchor, delta / distance, distance + radius, out var hit, true, true))
+			head = hit.Point + hit.Normal * radius;
+		// Also provide some space when the body itself is already close to a wall.
+		for (int i = 0; i < 3; i++)
+		{
+			if (!SolidWallCheckNearest(head, radius, out var wall) || wall.Normal.LengthSquared() < .01f) break;
+			var pushed = wall.Point + wall.Normal * radius;
+			if (!float.IsFinite(pushed.X) || !float.IsFinite(pushed.Y) || !float.IsFinite(pushed.Z)) break;
+			head = pushed;
+		}
+		return head;
+	}
+
 	/// <summary>Keep a tracked hand on the near side of solid world geometry.</summary>
 	internal Vec3 ConstrainVrHand(Vec3 head, Vec3 hand)
 	{
@@ -559,7 +573,7 @@ public class World : Scene
 		return closest.HasValue;
 	}
 
-	public StackList8<WallHit> SolidWallCheck(in Vec3 point, float radius)
+	public StackList8<WallHit> SolidWallCheck(in Vec3 point, float radius, float maxPenetration = 0)
 	{
 		var radiusSquared = radius * radius;
 		var flatPlane = new Plane(Vec3.UnitZ, point.Z);
@@ -588,7 +602,7 @@ public class World : Scene
 
 				// igore planes that are definitely too far away
 				var distanceToPlane = Utils.DistanceToPlane(point, face.Plane);
-				if (distanceToPlane < 0 || distanceToPlane > radius)
+				if (distanceToPlane < -maxPenetration || distanceToPlane > radius)
 					continue;
 
 				WallHit? closestTriangleOnPlane = null;
@@ -599,12 +613,17 @@ public class World : Scene
 						verts[face.VertexStart + 0], verts[face.VertexStart + i + 1], verts[face.VertexStart + i + 2],
 						out var line0, out var line1))
 					{
-						var next = new Vec3(new Line(line0.XY(), line1.XY()).ClosestPoint(flatPoint), point.Z);
+						var next = new Vec3(Utils.ClosestPointOnSegment(line0.XY(), line1.XY(), flatPoint), point.Z);
+						if (!float.IsFinite(next.X) || !float.IsFinite(next.Y)) continue;
 						var diff = (point - next);
 						if (diff.LengthSquared() > radiusSquared)
 							continue;
 
-						var pushout = (radius - diff.Length()) * diff.Normalized();
+						// At exact contact the separation vector is zero; use the face's
+						// outward horizontal normal rather than generating an invalid pushout.
+						var fallback = new Vec3(face.Plane.Normal.XY().Normalized(), 0);
+						var pushout = (radius - diff.Length()) * diff.Normalized(fallback);
+						if (!float.IsFinite(pushout.X) || !float.IsFinite(pushout.Y) || !float.IsFinite(pushout.Z)) continue;
 						if (closestTriangleOnPlane.HasValue && pushout.LengthSquared() < 
 							closestTriangleOnPlane.Value.Pushout.LengthSquared())
 							continue;
@@ -633,25 +652,19 @@ public class World : Scene
 		return hits;
 	}
 
-	public bool SolidWallCheckNearest(in Vec3 point, float radius, out WallHit hit)
+	public bool SolidWallCheckNearest(in Vec3 point, float radius, out WallHit hit, float maxNormalZ = 1.01f)
 	{
 		var hits = SolidWallCheck(point, radius);
-		if (hits.Count > 0)
+		bool found = false;
+		WallHit closest = default;
+		foreach (var candidate in hits)
 		{
-			var closest = hits[0];
-			for (int i = 1; i < hits.Count; i++)
-			{
-				if (hits[i].Pushout.LengthSquared() > closest.Pushout.LengthSquared()) // note reversed because we want the most pushout
-					closest = hits[i];
-			}
-			hit = closest;
-			return true;
+			if (candidate.Normal.Z >= maxNormalZ) continue;
+			if (!found || candidate.Pushout.LengthSquared() > closest.Pushout.LengthSquared()) closest = candidate;
+			found = true;
 		}
-		else
-		{
-			hit = default;
-			return false;
-		}
+		hit = closest;
+		return found;
 	}
 
 	public bool SolidWallCheckClosestToNormal(in Vec3 point, float radius, Vec3 normal, out WallHit hit)
@@ -740,7 +753,8 @@ public class World : Scene
 				var alpha = (actor as ICastPointShadow)!.PointShadowAlpha;
 				if (alpha > 0 && 
 					Camera.Frustum.Contains(actor.WorldBounds.Conflate(actor.WorldBounds - Vec3.UnitZ * 1000)))
-					sprites.Add(Sprite.CreateShadowSprite(this, actor.Position + Vec3.UnitZ, alpha));
+					sprites.Add(Sprite.CreateShadowSprite(this, actor.Position + Vec3.UnitZ, alpha,
+						(VrFirstPersonRendering || VrCollectionRendering) && (actor is Player || actor is IPickup) ? .3f : 0));
 			}
 
 			// collect models & sprites
@@ -853,7 +867,8 @@ public class World : Scene
 				try { vrHandRenderer = new VrHandRenderer(); }
 				catch (Exception error) { vrHandRendererFailed = true; Log.Warning($"Could not load VR hand meshes: {error.Message}"); }
 			}
-			vrHandRenderer?.Render(ref state, handAnchor, VrHeadReference, VrHeadWorldPosition, VrTrackedHands, this);
+			if (Get<Player>() is { } vrPlayer)
+				vrHandRenderer?.Render(ref state, handAnchor, VrHeadReference, VrHeadWorldPosition, VrTrackedHands, this, vrPlayer.Hair.Color);
 		}
 
 		if (includeUi)

@@ -12,13 +12,13 @@ public struct Sprite
 	public Color Color;
 	public bool Post;
 
-	public static Sprite CreateShadowSprite(World world, Vec3 position, float strength = 1.0f)
+	public static Sprite CreateShadowSprite(World world, Vec3 position, float strength = 1.0f, float surfaceOffset = 0)
 	{
 		if (world.SolidRayCast(position, -Vec3.UnitZ, 1000, out var hit))
 		{
 			var a = Vec3.Cross(hit.Normal, new Vec3(0, 1, 0));
 			var b = Vec3.Cross(hit.Normal, new Vec3(1, 0, 0));
-			var at = hit.Point + new Vec3(0, 0, 0.01f);
+			var at = hit.Point + (surfaceOffset > 0 ? hit.Normal * surfaceOffset : Vec3.UnitZ * .01f);
 			var size = Calc.Map(hit.Distance, 0, 50, 3, 2);
 
 			return new Sprite

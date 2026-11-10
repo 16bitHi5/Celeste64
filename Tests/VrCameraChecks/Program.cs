@@ -31,6 +31,15 @@ if (!float.IsFinite(verticalEye.ViewUp.X))
 
 Console.WriteLine("VR eye offsets, movement, roll, projection, and vertical camera checks passed.");
 
+var mirrorViewport = VrMirrorLayout.Viewport(1920, 1200);
+if (mirrorViewport.Width != 1920 || mirrorViewport.Height != 1080 || mirrorViewport.Y != 60 ||
+    VrMirrorLayout.Viewport(1200, 1080).Height != 675 ||
+    VrMirrorLayout.FillScale(1000, 1000, mirrorViewport, 1) != 1.92f ||
+    VrMirrorLayout.Zoom(1, -1) != 1 || VrMirrorLayout.Zoom(3, 1) != 3 ||
+    VrMirrorLayout.Zoom(1, 1) <= 1)
+    throw new Exception("VR desktop mirror framing or zoom is incorrect.");
+Console.WriteLine("VR desktop 16:9 framing and zoom checks passed.");
+
 if (!VrPointerMath.Intersect(Vector3.Zero, Quaternion.Identity, new(0, 0, -2), Quaternion.Identity, out var center) || Vector2.Distance(center, new(.5f, .5f)) > .0001f)
     throw new Exception("Pointer should hit the panel centre.");
 if (VrPointerMath.Intersect(Vector3.Zero, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI), new(0, 0, -2), Quaternion.Identity, out _))
@@ -38,6 +47,38 @@ if (VrPointerMath.Intersect(Vector3.Zero, Quaternion.CreateFromAxisAngle(Vector3
 if (VrPointerMath.Intersect(new(2, 0, 0), Quaternion.Identity, new(0, 0, -2), Quaternion.Identity, out _))
     throw new Exception("Pointer outside panel bounds must not hit it.");
 Console.WriteLine("VR pointer intersection checks passed.");
+
+if (!VrCardInteraction.TryIntersect(new Vector3(0, -10, 0), Vector3.UnitY, Matrix4x4.Identity, 80, 50, out var cardUv, out var cardDistance) ||
+    Vector2.Distance(cardUv, new Vector2(.5f, .5f)) > .0001f || MathF.Abs(cardDistance - 10) > .0001f ||
+    VrCardInteraction.TryIntersect(new Vector3(0, -10, 0), -Vector3.UnitY, Matrix4x4.Identity, 80, 50, out _, out _) ||
+    VrCardInteraction.TryIntersect(new Vector3(100, -10, 0), Vector3.UnitY, Matrix4x4.Identity, 80, 50, out _, out _))
+    throw new Exception("The controller ray must hit only the visible postcard bounds in front of it.");
+var movedCard = Matrix4x4.CreateRotationZ(MathF.PI / 2) * Matrix4x4.CreateTranslation(5, 0, 0);
+if (!VrCardInteraction.TryIntersect(new Vector3(15, 0, 0), -Vector3.UnitX, movedCard, 80, 50, out cardUv, out _) ||
+    Vector2.Distance(cardUv, new Vector2(.5f, .5f)) > .0001f)
+    throw new Exception("Pointer intersection should follow a moved and rotated postcard.");
+var cardDrag = new VrCardDrag();
+if (!cardDrag.Begin(2, -Vector3.UnitZ, Vector2.Zero) || cardDrag.End() != 2)
+    throw new Exception("A short trigger tap should select the pointed postcard.");
+cardDrag.Begin(1, -Vector3.UnitZ, Vector2.Zero);
+var cardTilt = cardDrag.Update(Vector3.Normalize(new Vector3(.3f, .1f, -1)));
+if (!cardDrag.Moved || cardTilt.LengthSquared() < .001f || cardDrag.End() != -1)
+    throw new Exception("Moving the controller while held should tilt the card without selecting it.");
+Console.WriteLine("VR postcard ray, tap, and drag checks passed.");
+
+var controlsLayout = new VrControlsLayout();
+var controlsCenter = new Vector2(320, 180);
+if (controlsLayout.HitTest(new(100, 50), controlsCenter) != 0 ||
+    controlsLayout.HitTest(new(320, 50), controlsCenter) != 1 ||
+    controlsLayout.HitTest(new(530, 50), controlsCenter) != 2 ||
+    controlsLayout.HitTest(new(180, 315), controlsCenter) != 3 ||
+    controlsLayout.HitTest(new(450, 315), controlsCenter) != 4 ||
+    controlsLayout.HitTest(new(590, 15), controlsCenter) != -2 ||
+    controlsLayout.HitTest(new(320, 170), controlsCenter) != -1 ||
+    controlsLayout.PointerSide(1, new(250, 50), controlsCenter) != -1 ||
+    controlsLayout.PointerSide(1, new(390, 50), controlsCenter) != 1)
+    throw new Exception("VR controls guide pointer targets and arrows must match the visible settings.");
+Console.WriteLine("VR controls guide pointer layout checks passed.");
 
 static void CheckListener(Camera camera, string label)
 {
@@ -78,17 +119,153 @@ var verticalAnchor = VrCamera.FirstPersonAnchor(new Camera { LookAt = Vector3.Un
 Near(verticalAnchor.Forward, -Vector3.UnitX, "first-person fallback heading");
 Console.WriteLine("First-person anchor and eye-offset checks passed.");
 
+var roomAnchor = new Camera { Position = new(0, 0, 10), LookAt = new(0, 1, 10) };
+var roomReference = new Vector3(0, 1.6f, 0);
+var movedHead = new Vector3(.2f, 1.8f, -.1f);
+if (!VrRoomScale.TryMovement(roomAnchor, movedHead, roomReference, 10, out var roomMove))
+    throw new Exception("Ordinary headset movement should move the player.");
+Near(roomMove, new Vector3(2, 1, 0), "room-scale player movement");
+Near(VrRoomScale.Recenter(roomReference, movedHead), new Vector3(.2f, 1.6f, -.1f), "room-scale reference preserves height");
+if (VrRoomScale.TryMovement(roomAnchor, new Vector3(1, 1.6f, 0), roomReference, 10, out _) ||
+    VrRoomScale.TryMovement(roomAnchor, new Vector3(float.NaN, 1.6f, 0), roomReference, 10, out _))
+    throw new Exception("Large tracking resets or invalid poses must not teleport the player.");
+var turnedRoom = new Camera { Position = Vector3.Zero, LookAt = -Vector3.UnitX };
+if (!VrRoomScale.TryMovement(turnedRoom, new Vector3(0, 1.6f, -.2f), roomReference, 10, out roomMove))
+    throw new Exception("Head movement should work after turning.");
+Near(roomMove, new Vector3(-2, 0, 0), "room-scale movement follows camera heading");
+Console.WriteLine("VR room-scale body alignment checks passed.");
+
+var collectionFirst = new Camera { Position = Vector3.Zero, LookAt = Vector3.UnitY };
+var collectionThird = new Camera { Position = new(0, -20, 10), LookAt = new(0, 0, 5) };
+Near(VrCamera.CollectionAnchor(collectionFirst, collectionThird, 0).Position, collectionFirst.Position, "collection start");
+Near(VrCamera.CollectionAnchor(collectionFirst, collectionThird, 1).Position, collectionThird.Position, "collection end");
+Near(VrCamera.CollectionAnchor(collectionFirst, collectionThird, .5f).Position, new(0, -10, 5), "collection midpoint");
+var opposite = new Camera { Position = Vector3.One, LookAt = Vector3.One - Vector3.UnitY };
+CheckListener(VrCamera.CollectionAnchor(collectionFirst, opposite, .5f), "opposite collection views");
+var quarter = VrCamera.CollectionAnchor(collectionFirst, opposite, .25f).Forward;
+var threeQuarter = VrCamera.CollectionAnchor(collectionFirst, opposite, .75f).Forward;
+if (Vector3.Dot(quarter, threeQuarter) > .9f || MathF.Abs(quarter.X) < .01f || MathF.Abs(threeQuarter.X) < .01f)
+    throw new Exception("Collection rotation should turn smoothly between opposite views.");
+var headTurn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, .65f);
+Camera TrackedEye(Camera c) => VrCamera.ForEye(c, Vector3.Zero, headTurn, Vector3.Zero, 10,
+    -.7f, .7f, -.7f, .7f, 1, 800);
+var gaze = TrackedEye(collectionFirst).Forward;
+var frontView = VrCamera.CollectionView(collectionFirst, Vector3.Zero, gaze);
+if (Vector3.Dot(Vector3.Normalize(new Vector3(frontView.Position.X, frontView.Position.Y, 0)),
+    Vector3.Normalize(new Vector3(gaze.X, gaze.Y, 0))) < .999f ||
+    Vector3.Dot(TrackedEye(frontView).Forward, Vector3.Normalize(new Vector3(0, 0, 8) - frontView.Position)) < .999f)
+    throw new Exception("Collection camera should be in front of the tracked gaze and aim back at the player.");
+Console.WriteLine("VR collection camera blending checks passed.");
+
+var ledge = new Vector3(0, 0, 10);
+if (!VrLedgeGeometry.HasFootSupport(ledge, Vector3.UnitZ, point => new Vector3(point.X, point.Y, 10)))
+    throw new Exception("A broad flat ledge should support a mantle.");
+if (VrLedgeGeometry.HasFootSupport(ledge, Vector3.UnitZ, point => MathF.Abs(point.X) < 1 ? new Vector3(point.X, point.Y, 10) : null))
+    throw new Exception("A narrow lip should not support a mantle.");
+if (VrLedgeGeometry.HasFootSupport(ledge, Vector3.UnitZ, point => new Vector3(point.X, point.Y, point.Y > 1 ? 7 : 10)))
+    throw new Exception("A drop under the edge of the feet should not support a mantle.");
+if (VrLedgeGeometry.HasFootSupport(ledge, Vector3.UnitZ, point => new Vector3(point.X, point.Y, float.NaN)))
+    throw new Exception("An invalid floor height should not support a mantle.");
+var slope = Vector3.Normalize(new Vector3(-1, 0, 1));
+if (!VrLedgeGeometry.IsStandable(slope) || !VrLedgeGeometry.IsStandable(new Vector3(.866f, 0, .5f)) ||
+    VrLedgeGeometry.IsStandable(Vector3.UnitX) || VrLedgeGeometry.IsStandable(-Vector3.UnitZ) ||
+    VrLedgeGeometry.IsStandable(new Vector3(float.NaN, 0, 1)))
+    throw new Exception("The supported ledge cone should include upward slopes, but reject walls and ceilings.");
+if (!VrLedgeGeometry.HasFootSupport(ledge, slope, point => new Vector3(point.X, point.Y, 10 + point.X)) ||
+    VrLedgeGeometry.HasFootSupport(ledge, slope, point => point.X > 1 ? null : new Vector3(point.X, point.Y, 10 + point.X)))
+    throw new Exception("Slope support should follow the plane but reject a narrow edge.");
+Console.WriteLine("VR ledge support footprint checks passed.");
+
+if (!Utils.PlaneTriangleIntersection(new Plane(Vector3.UnitZ, 1),
+    new Vector3(10, 10, 1), new Vector3(10, 9, 0), new Vector3(11, 10, 0), out var vertexA, out var vertexB))
+    throw new Exception("A horizontal slice should touch the top triangle vertex.");
+var vertexContact = Utils.ClosestPointOnSegment(new Vector2(vertexA.X, vertexA.Y), new Vector2(vertexB.X, vertexB.Y), new Vector2(10, 10));
+if (!float.IsFinite(vertexContact.X) || !float.IsFinite(vertexContact.Y) || Vector2.Distance(vertexContact, new Vector2(10, 10)) > .001f)
+    throw new Exception("A collision slice at a triangle tip must produce a finite contact point.");
+if (Vector2.Distance(Utils.ClosestPointOnSegment(new(1, 2), new(1, 2), new(20, 30)), new(1, 2)) > .001f ||
+    Vector2.Distance(Utils.ClosestPointOnSegment(new(1, 2), new(3, 2), new(2, 8)), new(2, 2)) > .001f)
+    throw new Exception("Closest wall contact must handle both point and ordinary segments.");
+Console.WriteLine("VR ledge-tip collision checks passed.");
+
+if (!VrClimbCorner.ShouldSwitch(Vector3.UnitY, Vector3.UnitX, 1, 1, true) ||
+    !VrClimbCorner.ShouldSwitch(Vector3.UnitY, -Vector3.UnitY, 1, 1, true))
+    throw new Exception("A nearby perpendicular wall should allow a corner hand transfer.");
+if (VrClimbCorner.ShouldSwitch(Vector3.UnitY, Vector3.UnitY, 1, 5, true) ||
+    VrClimbCorner.ShouldSwitch(Vector3.UnitY, Vector3.UnitX, 4, 5, true))
+    throw new Exception("Corner transfer accepted a same-face or distant wall.");
+if (!VrClimbCorner.ShouldSwitch(Vector3.UnitY, Vector3.UnitX, 2, .5f, true) ||
+    !VrClimbCorner.ShouldSwitch(Vector3.UnitY, Vector3.UnitX, .5f, 1.5f, false) ||
+    VrClimbCorner.ShouldSwitch(Vector3.UnitY, Vector3.UnitX, 1, 1.2f, false))
+    throw new Exception("A held hand should transfer only when the adjacent face is clearly closer.");
+Console.WriteLine("VR climbing corner contact checks passed.");
+
+if (VrFeatherDirection.Resolve(Vector2.Zero, new Vector3(2, 0, 8), -Vector2.UnitY) != Vector2.UnitX ||
+    VrFeatherDirection.Resolve(-Vector2.UnitY, Vector3.UnitX, Vector2.UnitX) != -Vector2.UnitY ||
+    VrFeatherDirection.Resolve(Vector2.Zero, Vector3.UnitZ, -Vector2.UnitY) != -Vector2.UnitY)
+    throw new Exception("Feather steering should follow horizontal gaze, respect stick input, and handle a vertical gaze.");
+Console.WriteLine("VR feather gaze and stick steering checks passed.");
+
+var releaseGate = new VrGrabReleaseGate();
+releaseGate.BlockHeld(true, true);
+releaseGate.Update(true, true, true, true);
+if (!releaseGate.LeftBlocked || !releaseGate.RightBlocked)
+    throw new Exception("Held triggers must stay blocked after a wall jump.");
+releaseGate.Update(true, false, false, false);
+if (releaseGate.LeftBlocked || !releaseGate.RightBlocked)
+    throw new Exception("Releasing one trigger should unblock it independently; tracking loss is not a release.");
+releaseGate.Update(true, true, true, false);
+if (releaseGate.LeftBlocked || releaseGate.RightBlocked)
+    throw new Exception("Each trigger should be available after its own release.");
+releaseGate.BlockHeld(false, true);
+releaseGate.Reset();
+if (releaseGate.LeftBlocked || releaseGate.RightBlocked)
+    throw new Exception("Leaving first-person VR should clear the grab gate.");
+Console.WriteLine("VR wall-jump grab release checks passed.");
+
+using (var savedSettings = new MemoryStream())
+{
+    var settings = new Save { VrFirstPerson = true, VrFirstPersonStickClimb = true };
+    Save.Serialize(savedSettings, settings);
+    var restored = Save.Deserialize(System.Text.Encoding.UTF8.GetString(savedSettings.ToArray()));
+    if (restored is null || !restored.VrFirstPerson || !restored.VrFirstPersonStickClimb)
+        throw new Exception("First-person stick climbing must survive saving and loading.");
+    var oldSave = Save.Deserialize("{\"VrFirstPerson\":true}");
+    if (oldSave is null || oldSave.VrFirstPersonStickClimb)
+        throw new Exception("Older saves should retain hand climbing by default.");
+}
+Console.WriteLine("VR climbing mode save compatibility checks passed.");
+
 var searchDirectory = new DirectoryInfo(AppContext.BaseDirectory);
 while (searchDirectory != null && !File.Exists(Path.Combine(searchDirectory.FullName, "Content", "Models", "player.glb")))
     searchDirectory = searchDirectory.Parent;
 if (searchDirectory == null) throw new Exception("Could not find the player model for hand extraction checks.");
 var playerModel = SharpGLTF.Schema2.ModelRoot.Load(Path.Combine(searchDirectory.FullName, "Content", "Models", "player.glb"));
+var vrLogoPath = Path.Combine(searchDirectory.FullName, "Content", "Models", "logo_vr.glb");
+var vrLogo = SharpGLTF.Schema2.ModelRoot.Load(vrLogoPath);
+if (vrLogo.DefaultScene == null || !vrLogo.LogicalNodes.Any(n => n.Name == "Cube.003" && n.Mesh != null) ||
+    vrLogo.LogicalImages.Count == 0 || vrLogo.LogicalImages.Any(i => i.Content.Content.IsEmpty) ||
+    vrLogo.LogicalMeshes.SelectMany(m => m.Primitives).Any(p => p.GetVertexAccessor("POSITION") == null ||
+        p.GetVertexAccessor("NORMAL") == null || p.GetVertexAccessor("TEXCOORD_0") == null))
+    throw new Exception("VR title logo must include the new mesh, embedded texture, normals, and UVs.");
+var logoTemplate = new SkinnedTemplate(vrLogo);
+if (logoTemplate.Vertices.Count == 0 || logoTemplate.Indices.Count == 0)
+    throw new Exception("The game must be able to load the exported VR title logo.");
+Console.WriteLine("VR title logo model and embedded texture checks passed.");
 var hands = VrHandGeometry.Extract(playerModel);
 if (hands.Left.Indices.Length != 132 || hands.Right.Indices.Length != 132 ||
     hands.Left.Indices.Any(i => i < 0 || i >= hands.Left.Vertices.Length) ||
     hands.Right.Indices.Any(i => i < 0 || i >= hands.Right.Vertices.Length))
     throw new Exception("Original player hand triangles were not separated correctly.");
 Console.WriteLine("Original left and right hand mesh extraction checks passed.");
+
+var bracelet = VrBraceletGeometry.Create();
+if (bracelet.Vertices.Length != 12 * 6 || bracelet.Indices.Length != 12 * 6 * 6 ||
+    bracelet.Indices.Any(i => i < 0 || i >= bracelet.Vertices.Length) ||
+    bracelet.Vertices.Any(v => !float.IsFinite(v.Pos.X) || !float.IsFinite(v.Pos.Y) || !float.IsFinite(v.Pos.Z) ||
+        MathF.Abs(v.Normal.Length() - 1) > .001f || new Vector2(v.Pos.X, v.Pos.Z).Length() < .34f ||
+        v.Pos.Y < .28f || v.Pos.Y > .56f))
+    throw new Exception("Wrist bracelet geometry must form a valid ring with a clear center.");
+Console.WriteLine("VR wrist bracelet geometry checks passed.");
 
 var climber = new VrHandClimb();
 var idle = new VrHandClimb.Hand(Vector3.Zero, true, false, false);

@@ -36,6 +36,53 @@ public static class VrCamera
 		return camera;
 	}
 
+	/// <summary>Place the collection camera in front of the direction the player was looking.</summary>
+	public static Camera CollectionView(Camera anchor, Vector3 playerPosition, Vector3 headForward)
+	{
+		var flat = new Vector3(headForward.X, headForward.Y, 0);
+		if (!float.IsFinite(flat.LengthSquared()) || flat.LengthSquared() < .000001f)
+			flat = new Vector3(anchor.Forward.X, anchor.Forward.Y, 0);
+		if (flat.LengthSquared() < .000001f) flat = Vector3.UnitY;
+		flat = Vector3.Normalize(flat);
+		var position = playerPosition + flat * 36 + Vector3.UnitZ * 8;
+		var aim = Vector3.Normalize(playerPosition + Vector3.UnitZ * 8 - position);
+		var baseForward = anchor.Forward;
+		// The eye's tracked rotation is applied on top of the anchor. Compensate
+		// for the current head orientation so the initial view actually aims at Madeline.
+		float headYaw = MathF.Atan2(flat.Y, flat.X);
+		float baseYaw = MathF.Atan2(baseForward.Y, baseForward.X);
+		float yaw = MathF.Atan2(aim.Y, aim.X) - MathF.IEEERemainder(headYaw - baseYaw, MathF.Tau);
+		float headPitch = MathF.Asin(Math.Clamp(headForward.Z, -1, 1));
+		float basePitch = MathF.Asin(Math.Clamp(baseForward.Z, -1, 1));
+		float pitch = Math.Clamp(MathF.Asin(Math.Clamp(aim.Z, -1, 1)) - (headPitch - basePitch), -1.4f, 1.4f);
+		var direction = new Vector3(MathF.Cos(yaw) * MathF.Cos(pitch), MathF.Sin(yaw) * MathF.Cos(pitch), MathF.Sin(pitch));
+		anchor.Position = position;
+		anchor.LookAt = position + direction;
+		anchor.ViewUp = Vector3.UnitZ;
+		return anchor;
+	}
+
+	/// <summary>Blend the VR anchor to a collection camera without changing eye separation.</summary>
+	public static Camera CollectionAnchor(Camera firstPerson, Camera thirdPerson, float amount)
+	{
+		float t = Math.Clamp(amount, 0, 1);
+		t = t * t * (3 - 2 * t);
+		var position = Vector3.Lerp(firstPerson.Position, thirdPerson.Position, t);
+		var from = firstPerson.Forward;
+		var to = thirdPerson.Forward;
+		float yawFrom = MathF.Atan2(from.Y, from.X);
+		float yawTo = MathF.Atan2(to.Y, to.X);
+		float yaw = yawFrom + MathF.IEEERemainder(yawTo - yawFrom, MathF.Tau) * t;
+		float pitchFrom = MathF.Asin(Math.Clamp(from.Z, -1, 1));
+		float pitchTo = MathF.Asin(Math.Clamp(to.Z, -1, 1));
+		float pitch = pitchFrom + (pitchTo - pitchFrom) * t;
+		var direction = new Vector3(MathF.Cos(yaw) * MathF.Cos(pitch), MathF.Sin(yaw) * MathF.Cos(pitch), MathF.Sin(pitch));
+		firstPerson.Position = position;
+		firstPerson.LookAt = position + direction;
+		firstPerson.ViewUp = Vector3.UnitZ;
+		return firstPerson;
+	}
+
 	public static Camera ForEye(Camera anchor, Vector3 eyePosition, Quaternion eyeOrientation,
 		Vector3 referenceHeadPosition, float unitsPerMetre,
 		float angleLeft, float angleRight, float angleDown, float angleUp,

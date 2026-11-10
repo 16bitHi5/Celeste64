@@ -5,6 +5,7 @@ internal sealed class VrHandRenderer : IDisposable
 {
 	private readonly SimpleModel left;
 	private readonly SimpleModel right;
+	private readonly SimpleModel bracelet;
 
 	public VrHandRenderer()
 	{
@@ -12,6 +13,12 @@ internal sealed class VrHandRenderer : IDisposable
 		var geometry = VrHandGeometry.Extract(template.Root);
 		left = Create(geometry.Left);
 		right = Create(geometry.Right);
+		var braceletGeometry = VrBraceletGeometry.Create();
+		bracelet = new SimpleModel { CullMode = CullMode.None };
+		bracelet.Materials.Add(new DefaultMaterial(Assets.Textures["white"]) { Effects = .25f });
+		bracelet.Mesh.SetVertices(braceletGeometry.Vertices);
+		bracelet.Mesh.SetIndices(braceletGeometry.Indices);
+		bracelet.Parts.Add(new SimpleModel.Part(0, 0, braceletGeometry.Indices.Length));
 
 		SimpleModel Create(VrHandGeometry.Hand hand)
 		{
@@ -24,9 +31,11 @@ internal sealed class VrHandRenderer : IDisposable
 		}
 	}
 
-	public void Render(ref RenderState state, Camera anchor, Vec3 referenceHeadPosition, Vec3 headWorldPosition, XrBridge.Hands hands, World world)
+	public void Render(ref RenderState state, Camera anchor, Vec3 referenceHeadPosition, Vec3 headWorldPosition, XrBridge.Hands hands, World world, Color hairColor)
 	{
 		var baseState = state;
+		bracelet.Materials[0].Color = hairColor;
+		bracelet.Materials[0].SilhouetteColor = hairColor;
 		if (hands.LeftValid != 0) Draw(left, hands.Left);
 		if (hands.RightValid != 0) Draw(right, hands.Right);
 		void Draw(SimpleModel model, XrBridge.Pose pose)
@@ -35,8 +44,11 @@ internal sealed class VrHandRenderer : IDisposable
 			handState.ModelMatrix = VrCamera.TrackedPose(anchor, pose.Position, pose.Rotation, referenceHeadPosition, 10);
 			handState.ModelMatrix.Translation = world.ConstrainVrHand(headWorldPosition, handState.ModelMatrix.Translation);
 			model.Render(ref handState);
+			// Keep the status color legible in areas with strong vertical fog.
+			handState.VerticalFogColor = hairColor;
+			bracelet.Render(ref handState);
 		}
 	}
 
-	public void Dispose() { left.Mesh.Dispose(); right.Mesh.Dispose(); }
+	public void Dispose() { left.Mesh.Dispose(); right.Mesh.Dispose(); bracelet.Mesh.Dispose(); }
 }

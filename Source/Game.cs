@@ -56,6 +56,7 @@ public class Game : App
 	private XrBridge? xr;
 	public System.Numerics.Vector2? VrPointerPosition { get; private set; }
 	private bool vrPointerPressed, vrPointerWasDown;
+	internal XrBridge.Pointer VrMenuPointer { get; private set; }
 	public bool ConsumeVrPointerPress()
 	{
 		bool pressed = vrPointerPressed;
@@ -68,7 +69,7 @@ public class Game : App
 	internal Camera? FirstPersonHandAnchor { get; private set; }
 	internal Vec3 FirstPersonHeadWorldPosition { get; private set; }
 	internal ulong FirstPersonHandFrame { get; private set; }
-	internal Vec3? FirstPersonHeadReference => xrReferencePosition;
+	internal Vec3? FirstPersonHeadReference => vrRoomReference;
 	public bool QuestControlsEnabled { get; private set; } = true;
 	public void ToggleQuestControls()
 	{
@@ -77,6 +78,14 @@ public class Game : App
 	}
 	private Target[]? xrTargets;
 	private System.Numerics.Vector3? xrReferencePosition;
+	private Vec3? vrRoomReference, vrRoomHead;
+	private long vrTurnFrameTime;
+	private bool vrUncappedRendering;
+	private float vrCollectionBlend;
+	private Camera vrCollectionCamera;
+	private World? vrCollectionWorld;
+	private bool vrCollectionWasTape;
+	private bool vrCollectionActive;
 	private readonly bool stereoPreview = Environment.GetEnvironmentVariable("CELESTE64_STEREO_PREVIEW") == "1";
 	private readonly Batcher batcher;
 	private Transition transition;
@@ -85,6 +94,19 @@ public class Game : App
 	private int audioBeatCounter;
 	private bool audioBeatCounterEvent;
 	private bool mouseCameraEnabled = false;
+	private float vrMirrorZoom = 1f;
+
+	internal void ApplyVrRoomScale(Player player)
+	{
+		if (!IsVr || !Save.Instance.VrFirstPerson || !player.VrRoomScaleCanMove || player.World.Paused ||
+			vrCollectionBlend > 0 || FirstPersonHandAnchor is not { } anchor ||
+			vrRoomReference is not { } reference || vrRoomHead is not { } head) return;
+		// Move the body by the physical horizontal motion, through normal collision.
+		// Recenter even if a wall blocks it, keeping the head on the near side.
+		if (VrRoomScale.TryMovement(anchor, head, reference, 10, out var movement))
+			player.SweepTestMove(movement, false);
+		vrRoomReference = VrRoomScale.Recenter(reference, head);
+	}
 
 	public AudioHandle Ambience;
 	public AudioHandle Music;
@@ -155,14 +177,18 @@ public class Game : App
 		VrPointerPosition = null;
 		if (xr != null)
 		{
-			var pointer = xr.GetPointer();
-			bool down = pointer.Trigger != 0;
+			if (Window.Focused && Input.Mouse.Wheel.Y != 0)
+				vrMirrorZoom = VrMirrorLayout.Zoom(vrMirrorZoom, Input.Mouse.Wheel.Y);
+			var pointer = VrMenuPointer = xr.GetPointer();
+			bool down = pointer.Valid != 0 && pointer.Trigger != 0;
 			if (pointer.Valid != 0 && VrPointerMath.Intersect(pointer.Aim.Position, pointer.Aim.Rotation,
 				pointer.Surface.Position, pointer.Surface.Rotation, out var point))
 			{
 				VrPointerPosition = point * new System.Numerics.Vector2(Width, Height);
 				vrPointerPressed = down && !vrPointerWasDown;
 			}
+			if (pointer.Valid != 0 && scenes.TryPeek(out var pointerScene) && pointerScene is Overworld && !IsMidTransition)
+				vrPointerPressed = down && !vrPointerWasDown;
 			vrPointerWasDown = down;
 		}
 		Audio.Update();
@@ -408,8 +434,16 @@ public class Game : App
 		if (xr == null) return false;
 		bool menuActive = scenes.TryPeek(out var top) && (top is not World || ((World)top).Paused);
 		xr.SetInputOptions(menuActive, Save.Instance.VrGripDash, Save.Instance.VrFirstPerson);
-		if (!xr.Begin(out bool shouldRender)) { FirstPersonHands = default; FirstPersonHandAnchor = null; return false; }
+		if (!xr.Begin(out bool shouldRender))
+		{
+			SetVrRenderTiming(false);
+			FirstPersonHands = default; FirstPersonHandAnchor = null; return false;
+		}
+		// OpenXR's frame wait paces rendering to the headset. Keep simulation at
+		// its original 60 Hz, but don't make every render wait for a simulation tick.
+		SetVrRenderTiming(true);
 		int layerMode = 0;
+		bool imagesReady = false;
 		try
 		{
 			if (!shouldRender) { FirstPersonHands = default; FirstPersonHandAnchor = null; return false; }
@@ -424,46 +458,184 @@ public class Game : App
 					new Target(GraphicsDevice, renderWidth, renderHeight, [TextureFormat.Color, TextureFormat.Depth16])];
 			}
 			xrReferencePosition ??= (eyes[0].Position + eyes[1].Position) / 2;
-			if (scenes.TryPeek(out var current) && current is World world)
+			if (scenes.TryPeek(out var current) && current is Titlescreen title && transitionStep != TransitionStep.Hold && transitionStep != TransitionStep.Perform)
+			{
+				vrRoomReference = vrRoomHead = null;
+				FirstPersonHandAnchor = null;
+				FirstPersonHands = default;
+				FirstPersonViewForward = null;
+				vrCollectionWorld = null;
+				layerMode = 2;
+				var titleAnchor = title.VrCamera(xrTargets[0]);
+				for (int i = 0; i < 2; i++)
+				{
+					var eye = eyes[i];
+					var camera = VrCamera.ForEye(titleAnchor, eye.Position, eye.Orientation, xrReferencePosition.Value,
+						10, eye.Left, eye.Right, eye.Down, eye.Up, 1, 800);
+					title.RenderVrEye(xrTargets[i], camera);
+					GraphicsDevice.BlitToXrImage(xrTargets[i].Attachments[0], eye.Texture, eye.Width, eye.Height);
+				}
+				title.RenderVrUi(target);
+				DrawVrPointer(target);
+				GraphicsDevice.BlitToXrImage(target.Attachments[0], eyes[2].Texture, eyes[2].Width, eyes[2].Height);
+			}
+			else if (current is Overworld overworld && transitionStep != TransitionStep.Hold && transitionStep != TransitionStep.Perform)
+			{
+				vrRoomReference = vrRoomHead = null;
+				FirstPersonHandAnchor = null;
+				FirstPersonHands = default;
+				FirstPersonViewForward = null;
+				vrCollectionWorld = null;
+				layerMode = 2;
+				var cardAnchor = overworld.VrCamera(xrTargets[0]);
+				overworld.PrepareVrFrame(cardAnchor, xrReferencePosition.Value, xr.GetPointer());
+				for (int i = 0; i < 2; i++)
+				{
+					var eye = eyes[i];
+					var camera = VrCamera.ForEye(cardAnchor, eye.Position, eye.Orientation, xrReferencePosition.Value,
+						10, eye.Left, eye.Right, eye.Down, eye.Up, 1, 1000);
+					overworld.RenderVrEye(xrTargets[i], camera);
+					GraphicsDevice.BlitToXrImage(xrTargets[i].Attachments[0], eye.Texture, eye.Width, eye.Height);
+				}
+				overworld.RenderVrUi(target);
+				if (overworld.VrUsesFlatPointer) DrawVrPointer(target);
+				GraphicsDevice.BlitToXrImage(target.Attachments[0], eyes[2].Texture, eyes[2].Width, eyes[2].Height);
+			}
+			else if (current is World world)
 			{
 				layerMode = world.Paused ? 3 : 2;
 				var originalCamera = world.Camera;
 				var player = world.Get<Player>();
 				bool firstPerson = Save.Instance.VrFirstPerson && player != null;
-				var renderAnchor = firstPerson ? VrCamera.FirstPersonAnchor(originalCamera, player!.Position, player.Forward) : originalCamera;
+				bool vrIrisTransition = firstPerson && transitionStep != TransitionStep.None && transition.ToBlack is SpotlightWipe;
+				bool vrTransitionBlack = firstPerson && (transitionStep == TransitionStep.Hold || transitionStep == TransitionStep.Perform);
+				var headCenter = (eyes[0].Position + eyes[1].Position) / 2;
+				bool revealingTapeArea = firstPerson && player!.VrCassetteAreaReveal;
+				if (!firstPerson || vrCollectionWorld != world)
+				{
+					vrRoomReference = firstPerson ? headCenter : null;
+					vrRoomHead = firstPerson ? headCenter : null;
+					// A tape area starts with its scripted view, even if it was loaded
+					// through a transition that did not render the preceding world.
+					bool tapeArrival = revealingTapeArea || (firstPerson && vrCollectionWorld != null && vrCollectionWasTape);
+					vrCollectionBlend = tapeArrival ? 1 : 0;
+					if (tapeArrival) vrCollectionCamera = originalCamera;
+					vrCollectionWorld = firstPerson ? world : null;
+					vrCollectionActive = false;
+				}
+				vrCollectionWasTape = firstPerson && player!.VrTapeCinematic;
+				long now = Stopwatch.GetTimestamp();
+				float elapsed = vrTurnFrameTime == 0 ? 0 : Math.Clamp((float)Stopwatch.GetElapsedTime(vrTurnFrameTime, now).TotalSeconds, 0, .05f);
+				vrTurnFrameTime = firstPerson ? now : 0;
+				bool collecting = firstPerson && (player!.VrCollectionCinematic || revealingTapeArea);
+				if (firstPerson)
+				{
+					vrRoomHead = headCenter;
+					vrRoomReference ??= headCenter;
+					if (world.Paused || collecting || vrCollectionBlend > 0 || !player!.VrRoomScaleCanMove)
+						vrRoomReference = VrRoomScale.Recenter(vrRoomReference.Value, headCenter);
+				}
+				var poseReference = firstPerson ? vrRoomReference!.Value : xrReferencePosition.Value;
+				if (firstPerson && !world.Paused && !collecting && vrCollectionBlend <= 0) player!.UpdateVrTurn(elapsed);
+				var headingCamera = originalCamera;
+				if (firstPerson) headingCamera.LookAt = headingCamera.Position + player!.VrTurnForward;
+				var handAnchor = firstPerson ? VrCamera.FirstPersonAnchor(headingCamera, player!.Position, player.Forward) : originalCamera;
+				if (revealingTapeArea)
+				{
+					// Follow the original reveal camera until gameplay resumes.
+					vrCollectionCamera = originalCamera;
+				}
+				else if (collecting && !vrCollectionActive)
+				{
+					var eye = eyes[0];
+					var trackedView = VrCamera.ForEye(handAnchor, eye.Position, eye.Orientation, poseReference,
+						10, eye.Left, eye.Right, eye.Down, eye.Up, 1, 800);
+					vrCollectionCamera = VrCamera.CollectionView(handAnchor, player!.Position, trackedView.Forward);
+				}
+				vrCollectionActive = collecting;
+				if (!world.Paused) vrCollectionBlend = Calc.Approach(vrCollectionBlend, collecting ? 1 : 0, elapsed / .5f);
+				var renderAnchor = firstPerson && vrCollectionBlend > 0 ? VrCamera.CollectionAnchor(handAnchor, vrCollectionCamera, vrCollectionBlend) : handAnchor;
+				var headCorrection = Vec3.Zero;
 				world.VrReferenceCamera = renderAnchor;
-				world.VrFirstPersonRendering = firstPerson;
+				world.VrFirstPersonRendering = firstPerson && vrCollectionBlend < .35f;
+				world.VrCollectionRendering = firstPerson && vrCollectionBlend >= .35f;
 				if (firstPerson)
 				{
 					FirstPersonHands = xr.GetHands();
-					FirstPersonHandAnchor = renderAnchor;
-					FirstPersonHeadWorldPosition = Vec3.Transform(Vec3.Zero, VrCamera.TrackedPose(renderAnchor,
-						(eyes[0].Position + eyes[1].Position) / 2, Quaternion.Identity, xrReferencePosition.Value, 10));
+					FirstPersonHandAnchor = handAnchor;
+					var trackedHead = Vec3.Transform(Vec3.Zero, VrCamera.TrackedPose(handAnchor,
+						headCenter, Quaternion.Identity, poseReference, 10));
+					FirstPersonHeadWorldPosition = world.ConstrainVrHead(handAnchor.Position, trackedHead);
+					headCorrection = (FirstPersonHeadWorldPosition - trackedHead) * (1 - vrCollectionBlend);
 					FirstPersonHandFrame++;
 					world.VrTrackedHands = FirstPersonHands;
-					world.VrHeadReference = xrReferencePosition.Value;
+					world.VrHeadReference = poseReference;
 					world.VrHeadWorldPosition = FirstPersonHeadWorldPosition;
 				}
 				else { FirstPersonViewForward = null; FirstPersonHands = default; FirstPersonHandAnchor = null; }
+				// Both eyes project the same circle, two metres in front of the head.
+				var irisCenter = Vec3.Zero;
+				var irisAxis = Vec3.Zero;
+				var irisUp = Vec3.Zero;
+				if (vrIrisTransition && !vrTransitionBlack)
+				{
+				var irisLeft = VrCamera.ForEye(renderAnchor, eyes[0].Position, eyes[0].Orientation, poseReference,
+					10, eyes[0].Left, eyes[0].Right, eyes[0].Down, eyes[0].Up, 1, 800);
+				var irisRight = VrCamera.ForEye(renderAnchor, eyes[1].Position, eyes[1].Orientation, poseReference,
+					10, eyes[1].Left, eyes[1].Right, eyes[1].Down, eyes[1].Up, 1, 800);
+				var irisForward = Vec3.Normalize(irisLeft.Forward + irisRight.Forward);
+				irisAxis = Vec3.Normalize(Vec3.Cross(irisForward, irisLeft.ViewUp + irisRight.ViewUp));
+				irisUp = Vec3.Normalize(Vec3.Cross(irisAxis, irisForward));
+				irisCenter = (irisLeft.Position + irisRight.Position) * .5f + headCorrection + irisForward * 20;
+				}
 				try
 				{
 					for (int i = 0; i < 2; i++)
 					{
 						var eye = eyes[i];
-						world.Camera = VrCamera.ForEye(renderAnchor, eye.Position, eye.Orientation, xrReferencePosition.Value,
+						world.Camera = VrCamera.ForEye(renderAnchor, eye.Position, eye.Orientation, poseReference,
 							10, eye.Left, eye.Right, eye.Down, eye.Up, 1, 800);
+						if (firstPerson)
+						{
+							world.Camera.Position += headCorrection;
+							world.Camera.LookAt += headCorrection;
+						}
 						if (firstPerson && i == 0) FirstPersonViewForward = world.Camera.Forward;
 						world.Render(xrTargets[i], false);
+						if (vrTransitionBlack || vrIrisTransition)
+						{
+							var bounds = new Rect(0, 0, renderWidth, renderHeight);
+							if (vrTransitionBlack) batcher.Rect(bounds, Color.Black);
+							else ((SpotlightWipe)transition.ToBlack!).RenderVr(batcher, bounds, world.Camera, irisCenter, irisAxis, irisUp);
+							batcher.Render(xrTargets[i]);
+							batcher.Clear();
+						}
+						if (firstPerson && player!.VrDeathFade > 0)
+						{
+							batcher.Rect(new Rect(0, 0, renderWidth, renderHeight), Color.Black * player.VrDeathFade);
+							batcher.Render(xrTargets[i]);
+							batcher.Clear();
+						}
 						GraphicsDevice.BlitToXrImage(xrTargets[i].Attachments[0], eye.Texture, eye.Width, eye.Height);
 					}
 				}
-				finally { world.Camera = originalCamera; world.VrReferenceCamera = null; world.VrFirstPersonRendering = false; }
+				finally { world.Camera = originalCamera; world.VrReferenceCamera = null; world.VrFirstPersonRendering = false; world.VrCollectionRendering = false; }
 				world.RenderVrUi(target);
+				if (firstPerson && (player!.VrDeathFade > 0 || vrIrisTransition || vrTransitionBlack)) target.Clear(Color.Transparent);
 				if (world.Paused) DrawVrPointer(target);
 				GraphicsDevice.BlitToXrImage(target.Attachments[0], eyes[2].Texture, eyes[2].Width, eyes[2].Height);
 			}
 			else
 			{
+				vrRoomReference = vrRoomHead = null;
+				FirstPersonHandAnchor = null;
+				FirstPersonHands = default;
+				FirstPersonViewForward = null;
+				vrTurnFrameTime = 0;
+				vrCollectionBlend = 0;
+				vrCollectionWorld = null;
+				vrCollectionWasTape = false;
+				vrCollectionActive = false;
 				// Menus and transitions use a screen positioned in the XR reference space.
 				layerMode = 1;
 				target.Clear(Color.Black, 1, 0, ClearMask.All);
@@ -478,22 +650,43 @@ public class Game : App
 				DrawVrPointer(target);
 				GraphicsDevice.BlitToXrImage(target.Attachments[0], eyes[2].Texture, eyes[2].Width, eyes[2].Height);
 			}
-			GraphicsDevice.FlushXrImages();
-			var mirror = scenes.TryPeek(out var shown) && shown is World
+			imagesReady = GraphicsDevice.FlushXrImages();
+			var mirror = scenes.TryPeek(out var shown) && (shown is World || ((shown is Titlescreen || shown is Overworld) && layerMode == 2))
 				? xrTargets[0] : target;
-			var mirrorScale = Math.Min(Window.WidthInPixels / (float)mirror.Width, Window.HeightInPixels / (float)mirror.Height);
-			batcher.Image(mirror, Window.SizeInPixels / 2, mirror.Bounds.Size / 2, Vec2.One * mirrorScale, 0, Color.White);
-			if (shown is World)
+			bool stereoMirror = shown is World || ((shown is Titlescreen || shown is Overworld) && layerMode == 2);
+			var viewport = VrMirrorLayout.Viewport(Window.WidthInPixels, Window.HeightInPixels);
+			var center = new Vec2(viewport.X + viewport.Width / 2f, viewport.Y + viewport.Height / 2f);
+			var mirrorScale = VrMirrorLayout.FillScale(mirror.Width, mirror.Height, viewport, stereoMirror ? vrMirrorZoom : 1f);
+			batcher.PushSampler(new(TextureFilter.Linear, TextureWrap.Clamp, TextureWrap.Clamp));
+			batcher.Image(mirror, center, mirror.Bounds.Size / 2, Vec2.One * mirrorScale, 0, Color.White);
+			if (stereoMirror)
 			{
-				// The HUD/dialogue is a separate XR layer; composite it into the desktop mirror too.
-				var uiScale = Math.Min(mirror.Width * mirrorScale / target.Width, mirror.Height * mirrorScale / target.Height);
-				batcher.Image(target, Window.SizeInPixels / 2, target.Bounds.Size / 2, Vec2.One * uiScale, 0, Color.White);
+				// Keep dialogue and menus readable in the stream even when the world is zoomed.
+				var uiScale = Math.Min(viewport.Width / (float)target.Width, viewport.Height / (float)target.Height);
+				batcher.Image(target, center, target.Bounds.Size / 2, Vec2.One * uiScale, 0, Color.White);
 			}
+			batcher.PopSampler();
+			// Mask the edges after drawing. A window scissor can exceed SDL's
+			// current backbuffer during resize or startup and halt rendering.
+			batcher.Rect(0, 0, Window.WidthInPixels, viewport.Y, Color.Black);
+			batcher.Rect(0, viewport.Y + viewport.Height, Window.WidthInPixels,
+				Window.HeightInPixels - viewport.Y - viewport.Height, Color.Black);
+			batcher.Rect(0, viewport.Y, viewport.X, viewport.Height, Color.Black);
+			batcher.Rect(viewport.X + viewport.Width, viewport.Y,
+				Window.WidthInPixels - viewport.X - viewport.Width, viewport.Height, Color.Black);
 			batcher.Render(Window);
 			batcher.Clear();
 			return true;
 		}
-		finally { xr.End(layerMode); }
+		finally { xr.End(layerMode, imagesReady); }
+	}
+
+	private void SetVrRenderTiming(bool xrRunning)
+	{
+		if (vrUncappedRendering == xrRunning) return;
+		vrUncappedRendering = xrRunning;
+		UpdateMode = UpdateMode.FixedStep(60, !xrRunning);
+		if (!xrRunning) vrTurnFrameTime = 0;
 	}
 
 	private void DrawVrPointer(Target destination)

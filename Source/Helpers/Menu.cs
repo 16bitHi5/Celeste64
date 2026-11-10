@@ -15,6 +15,13 @@ public class Menu(Controls controls)
 		public virtual void Slide(int dir) {}
 	}
 
+	public interface ILayout
+	{
+		void Render(Menu menu, Batcher batch, Vec2 center);
+		int HitTest(Vec2 point, Vec2 center);
+		int PointerSide(int index, Vec2 point, Vec2 center);
+	}
+
 	public class Submenu(Func<string> label, Menu? rootMenu, Menu? submenu = null) : Item 
 	{
 		public Submenu(string label, Menu? rootMenu, Menu? submenu = null) : this(() => label, rootMenu, submenu) {}
@@ -117,6 +124,8 @@ public class Menu(Controls controls)
 				index--;
 			set(index);
 		}
+
+		public void Cycle() => Slide(get() < options.Count - 1 ? 1 : -1);
 	}
 
 	public class MultiSelect<T> : MultiSelect where T : struct, Enum
@@ -171,11 +180,14 @@ public class Menu(Controls controls)
 	public bool EnableVrPointer;
 	public bool UseVrPointerOverride;
 	public Vec2? VrPointerOverride;
+	public ILayout? CustomLayout;
 	private bool pointerSelection;
+	private bool pointerBack;
 	public bool ConsumePointerSelection() { bool selected = pointerSelection; pointerSelection = false; return selected; }
 	private Vec2 lastDrawCenter;
 
 	private readonly List<Item> items = [];
+	public IReadOnlyList<Item> Items => items;
 	private readonly Stack<Menu> submenus = [];
 	private Time time;
 
@@ -246,6 +258,15 @@ public class Menu(Controls controls)
 			var menuPointer = UseVrPointerOverride ? VrPointerOverride : game.VrPointerPosition;
 			if (EnableVrPointer && menuPointer is { } pointer)
 			{
+				if (CustomLayout != null)
+				{
+					hovered = CustomLayout.HitTest(pointer, lastDrawCenter);
+					if (hovered == -2 && game.ConsumeVrPointerPress()) { pointerBack = true; return; }
+					if (hovered < 0 || hovered >= items.Count || !items[hovered].Selectable) hovered = -1;
+					if (hovered >= 0) Index = hovered;
+				}
+				else
+				{
 				var font = Language.Current.SpriteFont;
 				float y = lastDrawCenter.Y - Size.Y / 2;
 				if (!string.IsNullOrEmpty(Title())) y += font.LineHeight * TitleScale + SpacerHeight + Spacing;
@@ -259,6 +280,7 @@ public class Menu(Controls controls)
 					y += height + (string.IsNullOrEmpty(label) ? 0 : Spacing);
 				}
 				if (hovered >= 0) Index = hovered;
+				}
 			}
 			var was = Index;
 			var step = 0;
@@ -283,12 +305,17 @@ public class Menu(Controls controls)
 	
 			if (Controls.Confirm.Pressed && items[Index].Pressed())
 				Controls.Consume();
+			else if (Controls.Confirm.Pressed && CustomLayout != null && items[Index] is MultiSelect multiSelect)
+			{
+				multiSelect.Cycle();
+				Controls.Consume();
+			}
 			else if (hovered >= 0 && game.ConsumeVrPointerPress())
 			{
 				if (!items[Index].Pressed())
 				{
 					if (items[Index] is Slider or MultiSelect or LocalizedMultiSelect)
-						items[Index].Slide(pointerSide(menuPointer!.Value.X));
+						items[Index].Slide(CustomLayout?.PointerSide(Index, menuPointer!.Value, lastDrawCenter) ?? pointerSide(menuPointer!.Value.X));
 					else pointerSelection = true;
 				}
 			}
@@ -305,8 +332,9 @@ public class Menu(Controls controls)
 		{
 			CurrentMenu.HandleInput();
 
-	        if (!IsInMainMenu && Controls.Cancel.ConsumePress()) 
+			if (!IsInMainMenu && (Controls.Cancel.ConsumePress() || CurrentMenu.pointerBack))
 			{
+				CurrentMenu.pointerBack = false;
 				Audio.Play(Sfx.main_menu_toggle_off);
 				submenus.Pop();
 			}
@@ -363,6 +391,11 @@ public class Menu(Controls controls)
 		CurrentMenu.EnableVrPointer = EnableVrPointer;
 		CurrentMenu.UseVrPointerOverride = UseVrPointerOverride;
 		CurrentMenu.VrPointerOverride = VrPointerOverride;
+		if (CurrentMenu.CustomLayout is { } layout)
+		{
+			layout.Render(CurrentMenu, batch, position);
+			return;
+		}
 		batch.PushMatrix(position);
 		CurrentMenu.RenderItems(batch);
 		batch.PopMatrix();

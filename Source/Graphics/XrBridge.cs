@@ -32,7 +32,7 @@ internal sealed class XrBridge : IDisposable
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern int CelesteXR_Init(nint bridge);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern nint CelesteXR_Error(nint bridge);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern int CelesteXR_BeginFrame(nint bridge, [Out] Eye[] eyes, out int render);
-    [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern int CelesteXR_EndFrame(nint bridge, int flat);
+    [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern int CelesteXR_EndFrame(nint bridge, int flat, int imagesReady);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_Destroy(nint bridge);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_SetInputEnabled(nint bridge, int enabled);
     [DllImport("CelesteXR", CallingConvention = CallingConvention.Cdecl)] private static extern void CelesteXR_SetInputOptions(nint bridge, int menuActive, int gripDash, int firstPerson);
@@ -65,9 +65,9 @@ internal sealed class XrBridge : IDisposable
         return result != 0;
     }
 
-    public void End(int mode)
+    public void End(int mode, bool imagesReady)
     {
-        if (CelesteXR_EndFrame(handle, mode) == 0) throw new InvalidOperationException(Error());
+        if (CelesteXR_EndFrame(handle, mode, imagesReady ? 1 : 0) == 0) throw new InvalidOperationException(Error());
     }
 
     private string Error() => Marshal.PtrToStringUTF8(CelesteXR_Error(handle)) ?? "Unknown OpenXR error";

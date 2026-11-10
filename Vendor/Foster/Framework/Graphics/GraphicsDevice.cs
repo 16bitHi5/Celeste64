@@ -13,7 +13,7 @@ public abstract class GraphicsDevice
 		=> throw new NotSupportedException("XR image blitting is unavailable on this graphics device.");
 
 	/// <summary>Submits pending rendering before releasing OpenXR images.</summary>
-	public virtual void FlushXrImages() => throw new NotSupportedException();
+	public virtual bool FlushXrImages() => throw new NotSupportedException();
 	internal readonly record struct ResourceHandle(nint Id)
 	{
 		public static implicit operator ResourceHandle(nint id) => new(id);

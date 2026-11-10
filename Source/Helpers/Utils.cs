@@ -142,7 +142,19 @@ public static class Utils
 			index++;
 		}
 
+		// A plane touching only a vertex is a point, not a line to the origin.
+		if (index == 1) line1 = line0;
 		return index > 0;
+	}
+
+	/// <summary>Closest point on a line segment, including a segment collapsed to a point.</summary>
+	public static Vec2 ClosestPointOnSegment(Vec2 from, Vec2 to, Vec2 point)
+	{
+		var delta = to - from;
+		float lengthSquared = delta.LengthSquared();
+		if (!float.IsFinite(lengthSquared) || lengthSquared < .00000001f) return from;
+		float t = Math.Clamp(Vec2.Dot(point - from, delta) / lengthSquared, 0, 1);
+		return from + delta * t;
 	}
 
 	public static bool PlaneLineIntersection(in Plane plane, in Vec3 line0, in Vec3 line1, out Vec3 point)

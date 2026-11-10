@@ -904,7 +904,7 @@ internal unsafe class GraphicsDeviceSDL(App app, GraphicsDriver preferred) : Gra
 		});
 	}
 
-	public override void FlushXrImages() => FlushCommands(stall: true);
+	public override bool FlushXrImages() => FlushCommands(stall: true);
 
 	internal override ResourceHandle CreateTarget(int width, int height)
 	{
@@ -1611,7 +1611,7 @@ internal unsafe class GraphicsDeviceSDL(App app, GraphicsDriver preferred) : Gra
 		}
 	}
 
-	private void FlushCommands(bool stall)
+	private bool FlushCommands(bool stall)
 	{
 		EndCopyPass();
 		EndRenderPass();
@@ -1645,12 +1645,17 @@ internal unsafe class GraphicsDeviceSDL(App app, GraphicsDriver preferred) : Gra
 		ResetCommandBufferState();
 
 		// wait for gpu fences
+		bool completed = false;
 		if (fences.Count > 0)
-			SDL_WaitForGPUFences(device, true, fences.Span, (uint)fences.Count);
+		{
+			bool waited = SDL_WaitForGPUFences(device, true, fences.Span, (uint)fences.Count);
+			completed = waited && fences.Count == 2;
+		}
 
 		// release gpu fences
 		for (int i = 0; i < fences.Count; i ++)
 			SDL_ReleaseGPUFence(device, fences[i]);
+		return completed;
 	}
 
 	private void ResetCommandBufferState()
