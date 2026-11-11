@@ -1,4 +1,4 @@
-# Celeste 64: Fragments of the Mountain
+# Celeste 64 VR
 
 ## Celeste VR (experimental fan project)
 
