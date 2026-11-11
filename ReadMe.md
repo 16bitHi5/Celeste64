@@ -12,9 +12,13 @@ The VR work includes:
 - Support for Quest-style controllers and gamepad controls, with configurable VR options.
 - Custom VR title artwork and an OpenXR bridge for headset rendering.
 
-### Build and run the VR version on Windows
+### Download for Windows
 
-This is currently a source build, not a packaged game download. You will need Git, the .NET 10 SDK, CMake, Visual Studio 2022 with C++ build tools, a Windows SDK containing `dxc.exe`, and a PC VR headset with an OpenXR runtime. The build script downloads a pinned SDL revision and requires an internet connection.
+Download `Celeste64VR-Windows-x64.zip` from the [experimental release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.1.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
+
+### Build the VR version from source on Windows
+
+To build from source, you will need Git, the .NET 10 SDK, CMake, Visual Studio 2022 with C++ build tools, a Windows SDK containing `dxc.exe`, and a PC VR headset with an OpenXR runtime. The build script downloads a pinned SDL revision and requires an internet connection.
 
 Check out the `first-person-vr` branch, then run from PowerShell in the repository folder:
 
