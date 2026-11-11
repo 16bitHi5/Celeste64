@@ -22,7 +22,20 @@ Check out the `first-person-vr` branch, then run from PowerShell in the reposito
 .\Build-VR.ps1
 ```
 
-The build is written to `Artifacts\CelesteVR`. Start your VR runtime and headset, then launch `Start Celeste VR.exe` from that folder. `Start-VR.cmd` is also included and writes diagnostic output to `CelesteVR.log`.
+The build is written to `Artifacts\CelesteVR`.
+
+### Playing with SteamVR
+
+1. Connect your PC VR headset and controllers to your Windows PC and start SteamVR. Make sure SteamVR is configured as your active OpenXR runtime.
+2. Run `Start Celeste VR.exe` from `Artifacts\CelesteVR`. The launcher enables VR and looks for SteamVR's OpenXR loader in the standard Steam installation folder.
+3. In the game's VR controls menu, set **View** to **First Person** to try the experimental mode. Third person is the default.
+4. In first person, reach toward a climbable surface, hold a controller trigger, and pull with your hand to climb. An optional stick-climbing setting is also available in the VR controls menu. The in-game guide shows the controller bindings.
+
+The desktop window mirrors gameplay for viewing or streaming. If the game does not start, `Start-VR.cmd` is also included and writes diagnostic output to `CelesteVR.log`.
+
+### Updates
+
+First-person mode with hand climbing is available experimentally on this branch. More updates are to come as the VR adaptation develops.
 
 The original project information and license follow below.
 
