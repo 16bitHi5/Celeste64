@@ -40,7 +40,15 @@ The desktop window mirrors gameplay for viewing or streaming. If the game does n
 
 ### Updates
 
-Version 0.2 adds the ledge landing indicator, strawberry and death wrist counters, improved collection camera positioning, and performance improvements. First-person mode remains experimental. More updates are to come.
+**Version 0.2**
+
+- Added a turquoise ring that shows where a first-person hand can pull you onto a ledge.
+- Added a strawberry counter on the left wrist and a death counter on the right wrist.
+- Improved the first-person collection camera to look for a clearer view, and turned Madeline toward the camera during strawberry celebrations.
+- Fixed an issue that stretched the right-wrist skull display between the hands.
+- Added optimized builds, preloaded sound effects, and support for requesting a higher headset refresh rate when available. Actual performance and refresh rate depend on the headset, runtime, and PC.
+
+First-person mode remains experimental. More updates are to come.
 
 The original project information and license follow below.
 
