@@ -132,11 +132,25 @@ public static class Audio
 				LoadBank(file);
 		}
 
-		// load banks second
+		// Load banks second. Preload short sound effects for VR during the
+		// loading screen, so first use during gameplay does not start disk loads.
 		foreach (var file in Directory.EnumerateFiles(directory))
 		{
 			if (file.EndsWith(".bank") && !file.EndsWith(".strings.bank"))
+			{
 				LoadBank(file);
+				if (Environment.GetEnvironmentVariable("CELESTE64_VR") == "1" &&
+					Path.GetFileName(file).Equals("sfx.bank", StringComparison.OrdinalIgnoreCase))
+				{
+					var result = banks[^1].loadSampleData();
+					if (result == FMOD.RESULT.OK)
+					{
+						result = system.flushSampleLoading();
+						if (result != FMOD.RESULT.OK) Log.Warning($"Could not finish preloading VR sound effects: {result}");
+					}
+					else Log.Warning($"Could not preload VR sound effects: {result}");
+				}
+			}
 		}
 	}
 

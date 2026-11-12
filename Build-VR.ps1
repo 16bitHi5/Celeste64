@@ -31,7 +31,7 @@ if ($LASTEXITCODE -ne 0) { throw 'XR bridge configuration failed.' }
 cmake --build $bridgeBuild --config Release
 if ($LASTEXITCODE -ne 0) { throw 'XR bridge build failed.' }
 $output = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $root $OutputDirectory }
-& $sdk build (Join-Path $root 'Celeste64.csproj') -c Debug -o $output
+& $sdk build (Join-Path $root 'Celeste64.csproj') -c Release -o $output
 if ($LASTEXITCODE -ne 0) { throw 'Celeste build failed.' }
 Copy-Item (Join-Path $sdlBuild 'Release\SDL3.dll') $output -Force
 Copy-Item (Join-Path $bridgeBuild 'Release\CelesteXR.dll') $output -Force

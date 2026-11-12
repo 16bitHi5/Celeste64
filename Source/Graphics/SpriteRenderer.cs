@@ -34,7 +34,8 @@ public class SpriteRenderer
 				if (current.Count > 0)
 					spriteBatches.Add(current);
 				current.Texture = board.Subtexture.Texture;
-				current.Index = i;
+				// Draw offsets count indices, not vertices (each sprite has six indices).
+				current.Index = spriteIndices.Count;
 				current.Count = 0;
 			}
 

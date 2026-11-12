@@ -836,7 +836,10 @@ public class World : Scene
 			if (VrReferenceCamera is { } reference && Get<Player>() is { } player)
 			{
 				// A single, world-space plane behind the celebration, shared by both eyes.
-				var center = player.Position + Vec3.UnitZ * 8 + reference.Forward * 10;
+				var away = (player.Position - reference.Position).XY();
+				if (away.LengthSquared() < .0001f) away = reference.Forward.XY();
+				if (away.LengthSquared() < .0001f) away = Vec2.UnitY;
+				var center = player.Position + Vec3.UnitZ * 8 + new Vec3(away.Normalized(), 0) * 10;
 				var up = reference.Up * 25;
 				var left = reference.Left * (25 * img.Width / (float)img.Height);
 				var splash = new Sprite { Subtexture = img, A = center + left + up, B = center - left + up,
@@ -868,7 +871,7 @@ public class World : Scene
 				catch (Exception error) { vrHandRendererFailed = true; Log.Warning($"Could not load VR hand meshes: {error.Message}"); }
 			}
 			if (Get<Player>() is { } vrPlayer)
-				vrHandRenderer?.Render(ref state, handAnchor, VrHeadReference, VrHeadWorldPosition, VrTrackedHands, this, vrPlayer.Hair.Color);
+				vrHandRenderer?.Render(ref state, handAnchor, VrHeadReference, VrHeadWorldPosition, VrTrackedHands, this, vrPlayer, vrPlayer.Hair.Color, spriteRenderer);
 		}
 
 		if (includeUi)

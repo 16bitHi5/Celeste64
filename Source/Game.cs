@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Celeste64;
@@ -550,7 +550,10 @@ public class Game : App
 					var eye = eyes[0];
 					var trackedView = VrCamera.ForEye(handAnchor, eye.Position, eye.Orientation, poseReference,
 						10, eye.Left, eye.Right, eye.Down, eye.Up, 1, 800);
-					vrCollectionCamera = VrCamera.CollectionView(handAnchor, player!.Position, trackedView.Forward);
+					var collectionPosition = VrCamera.CollectionPosition(handAnchor.Position, player!.Position, trackedView.Forward,
+						(origin, direction, distance) => world.SolidRayCast(origin, direction, distance, out var hit, false, true) ? hit.Distance : distance);
+					vrCollectionCamera = VrCamera.CollectionView(handAnchor, player.Position, trackedView.Forward, collectionPosition);
+					player.FaceVrStrawberryCamera(collectionPosition);
 				}
 				vrCollectionActive = collecting;
 				if (!world.Paused) vrCollectionBlend = Calc.Approach(vrCollectionBlend, collecting ? 1 : 0, elapsed / .5f);

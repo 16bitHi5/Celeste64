@@ -7,6 +7,8 @@ namespace Foster.Framework;
 
 internal unsafe class GraphicsDeviceSDL(App app, GraphicsDriver preferred) : GraphicsDevice(app)
 {
+	[System.Runtime.InteropServices.DllImport("CelesteXR", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+	private static extern int CelesteXR_RefreshExtensionAvailable();
 	private class Resource(GraphicsDeviceSDL graphicsDevice)
 	{
 		public ResourceHandle Handle = nint.Zero;
@@ -193,7 +195,23 @@ internal unsafe class GraphicsDeviceSDL(App app, GraphicsDriver preferred) : Gra
 				SDL_SetPointerProperty(props, "SDL.gpu.device.create.xr.system_id_out", (nint)(&system));
 				if (requestedDriverName != null)
 					SDL_SetStringProperty(props, "SDL.gpu.device.create.name", requestedDriverName);
-				device = SDL_CreateGPUDeviceWithProperties(props);
+				bool refreshControl = false;
+				try { refreshControl = CelesteXR_RefreshExtensionAvailable() != 0; }
+				catch (DllNotFoundException) { }
+				catch (EntryPointNotFoundException) { }
+				if (refreshControl)
+				{
+					ReadOnlySpan<byte> extension = "XR_FB_display_refresh_rate\0"u8;
+					fixed (byte* extensionName = extension)
+					{
+						nint* names = stackalloc nint[1];
+						names[0] = (nint)extensionName;
+						SDL_SetNumberProperty(props, "SDL.gpu.device.create.xr.extensions.count", 1);
+						SDL_SetPointerProperty(props, "SDL.gpu.device.create.xr.extensions.names", (nint)names);
+						device = SDL_CreateGPUDeviceWithProperties(props);
+					}
+				}
+				else device = SDL_CreateGPUDeviceWithProperties(props);
 				xrInstance = instance;
 				xrSystem = system;
 			}

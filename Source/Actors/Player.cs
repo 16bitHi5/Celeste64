@@ -1507,8 +1507,34 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 			(vrRightLedgePressed && TryVrMantleHand(hands.Right, anchor, reference));
 	}
 
+	internal bool TryGetVrLedgeIndicator(XrBridge.Pose pose, bool tracked, Camera anchor, Vec3 reference, out Vec3 landing, out Vec3 normal)
+	{
+		landing = normal = default;
+		if (!tracked || World.Paused || !Game.Instance.IsVr || !Save.Instance.VrFirstPerson ||
+			(stateMachine.State != States.Normal && !(stateMachine.State == States.Climbing && vrHandClimbing)))
+			return false;
+		return TryFindVrMantleLanding(pose, anchor, reference, out landing, out normal, out _);
+	}
+
 	private bool TryVrMantleHand(XrBridge.Pose pose, Camera anchor, Vec3 reference)
 	{
+		if (!TryFindVrMantleLanding(pose, anchor, reference, out var landing, out _, out float peakZ)) return false;
+		vrMantleStart = Position;
+		vrMantleLastSafe = Position;
+		vrMantleTarget = landing;
+		vrMantlePeakZ = peakZ;
+		vrMantleElapsed = 0;
+		velocity = Vec3.Zero;
+		autoJump = false;
+		stateMachine.State = States.VrMantle;
+		Audio.Play(Sfx.sfx_climb_ledge, Position);
+		return true;
+	}
+
+	private bool TryFindVrMantleLanding(XrBridge.Pose pose, Camera anchor, Vec3 reference, out Vec3 landing, out Vec3 normal, out float peakZ)
+	{
+		landing = normal = default;
+		peakZ = 0;
 		// Use the tracked hand: its visual representation may be occluded by the ledge.
 		var hand = Vec3.Transform(Vec3.Zero, VrCamera.TrackedPose(anchor, pose.Position, pose.Rotation, reference, 10));
 		if (!float.IsFinite(hand.X) || !float.IsFinite(hand.Y) || !float.IsFinite(hand.Z) ||
@@ -1531,7 +1557,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		var probe = new Vec3(probeXY, predictedZ + 2);
 		if (!World.SolidRayCast(probe, -Vec3.UnitZ, 4, out var floor, true, true) ||
 			!VrLedgeGeometry.IsStandable(floor.Normal) || MathF.Abs(floor.Point.Z - predictedZ) > 1) return false;
-		var landing = floor.Point + Vec3.UnitZ * .05f;
+		landing = floor.Point + Vec3.UnitZ * .05f;
 		if (World.SolidRayCast(landing + Vec3.UnitZ * .2f, Vec3.UnitZ, 12, out _, true, true) ||
 			World.SolidWallCheckNearest(landing + Vec3.UnitZ * 3, 2.9f, out _, .5f) ||
 			World.SolidWallCheckNearest(landing + Vec3.UnitZ * 10, 2.9f, out _, .5f) ||
@@ -1548,7 +1574,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 				VrLedgeGeometry.IsStandable(support.Normal) ? support.Point : null;
 		})) return false;
 		float slopeClearance = floor.Normal.XY().Length() / floor.Normal.Z * 2.5f;
-		float peakZ = MathF.Max(Position.Z, MathF.Max(top.Point.Z, landing.Z) + slopeClearance + .15f);
+		peakZ = MathF.Max(Position.Z, MathF.Max(top.Point.Z, landing.Z) + slopeClearance + .15f);
 		float lift = peakZ - Position.Z;
 		if (lift > 0 && World.SolidRayCast(Position + Vec3.UnitZ * 10, Vec3.UnitZ, lift + 2, out _, true, true)) return false;
 		var raised = Position + Vec3.UnitZ * lift;
@@ -1564,15 +1590,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 						approachDistance, out _, true, true)) return false;
 		}
 
-		vrMantleStart = Position;
-		vrMantleLastSafe = Position;
-		vrMantleTarget = landing;
-		vrMantlePeakZ = peakZ;
-		vrMantleElapsed = 0;
-		velocity = Vec3.Zero;
-		autoJump = false;
-		stateMachine.State = States.VrMantle;
-		Audio.Play(Sfx.sfx_climb_ledge, Position);
+		normal = floor.Normal;
 		return true;
 	}
 
@@ -2050,9 +2068,19 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 			World.Destroy(lastStrawb);
 	}
 
+	internal void FaceVrStrawberryCamera(Vec3 cameraPosition)
+	{
+		if (stateMachine.State != States.StrawbGet) return;
+		var direction = (cameraPosition - Position).XY();
+		if (!float.IsFinite(direction.LengthSquared()) || direction.LengthSquared() < .0001f) return;
+		strawbGetForward = direction.Normalized();
+		Facing = targetFacing = strawbGetForward;
+	}
+
 	private void StStrawbGetUpdate()
 	{
-		Facing = targetFacing = Calc.AngleToVector(strawbGetForward.Angle() - MathF.PI / 7);
+		Facing = targetFacing = Game.Instance.IsVr && Save.Instance.VrFirstPerson
+			? strawbGetForward : Calc.AngleToVector(strawbGetForward.Angle() - MathF.PI / 7);
 		cameraOverride = new CameraOverride(Position + new Vec3(strawbGetForward * 50, 40), Position + Vec3.UnitZ * 6);
 	}
 

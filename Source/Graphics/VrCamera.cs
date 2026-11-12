@@ -37,14 +37,14 @@ public static class VrCamera
 	}
 
 	/// <summary>Place the collection camera in front of the direction the player was looking.</summary>
-	public static Camera CollectionView(Camera anchor, Vector3 playerPosition, Vector3 headForward)
+	public static Camera CollectionView(Camera anchor, Vector3 playerPosition, Vector3 headForward, Vector3? cameraPosition = null)
 	{
 		var flat = new Vector3(headForward.X, headForward.Y, 0);
 		if (!float.IsFinite(flat.LengthSquared()) || flat.LengthSquared() < .000001f)
 			flat = new Vector3(anchor.Forward.X, anchor.Forward.Y, 0);
 		if (flat.LengthSquared() < .000001f) flat = Vector3.UnitY;
 		flat = Vector3.Normalize(flat);
-		var position = playerPosition + flat * 36 + Vector3.UnitZ * 8;
+		var position = cameraPosition ?? playerPosition + flat * 36 + Vector3.UnitZ * 8;
 		var aim = Vector3.Normalize(playerPosition + Vector3.UnitZ * 8 - position);
 		var baseForward = anchor.Forward;
 		// The eye's tracked rotation is applied on top of the anchor. Compensate
@@ -60,6 +60,46 @@ public static class VrCamera
 		anchor.LookAt = position + direction;
 		anchor.ViewUp = Vector3.UnitZ;
 		return anchor;
+	}
+
+	/// <summary>Choose a clear path for the celebration camera, preferring the direction the player looked.</summary>
+	public static Vector3 CollectionPosition(Vector3 start, Vector3 playerPosition, Vector3 headForward,
+		Func<Vector3, Vector3, float, float> clearDistance)
+	{
+		var heading = new Vector2(headForward.X, headForward.Y);
+		if (!float.IsFinite(heading.LengthSquared()) || heading.LengthSquared() < .000001f)
+			heading = Vector2.UnitY;
+		heading = Vector2.Normalize(heading);
+		float baseAngle = MathF.Atan2(heading.Y, heading.X);
+		// Try nearby directions first, but choose the longest safe path if none
+		// has enough room to frame the character comfortably.
+		ReadOnlySpan<float> turns = [0, MathF.PI / 4, -MathF.PI / 4, MathF.PI / 2,
+			-MathF.PI / 2, 3 * MathF.PI / 4, -3 * MathF.PI / 4, MathF.PI];
+		var best = start;
+		float bestDistance = -1;
+		foreach (float turn in turns)
+		{
+			float angle = baseAngle + turn;
+			var desired = playerPosition + new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0) * 36 + Vector3.UnitZ * 8;
+			var delta = desired - start;
+			float distance = delta.Length();
+			if (distance < .001f) continue;
+			var direction = delta / distance;
+			var side = Vector3.Normalize(new Vector3(-direction.Y, direction.X, 0));
+			float available = distance;
+			// Sample around the camera as well as its center to leave space for
+			// both eyes and the near plane during the entire transition.
+			foreach (var offset in new[] { Vector3.Zero, side * 2, -side * 2, Vector3.UnitZ * 2, -Vector3.UnitZ * 2 })
+				available = MathF.Min(available, Math.Clamp(clearDistance(start + offset, direction, distance), 0, distance));
+			if (available < distance) available = MathF.Max(0, available - 2);
+			if (available > bestDistance)
+			{
+				bestDistance = available;
+				best = start + direction * available;
+			}
+			if (available >= 30) break;
+		}
+		return best;
 	}
 
 	/// <summary>Blend the VR anchor to a collection camera without changing eye separation.</summary>

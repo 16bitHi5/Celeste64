@@ -16,3 +16,5 @@ target_link_libraries(TouchVirtualGamepadTest PRIVATE "${SDL_BUILD_DIR}/Release/
 add_executable(VrPanelPoseTest "${CMAKE_CURRENT_SOURCE_DIR}/../../Tests/VrPanelPoseTest.c")
 target_include_directories(VrPanelPoseTest PRIVATE "${SDL_SOURCE_DIR}/include" "${SDL_SOURCE_DIR}/src/video/khronos" "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(VrPanelPoseTest PRIVATE "${SDL_BUILD_DIR}/Release/SDL3.lib")
+add_executable(VrRefreshRateTest "${CMAKE_CURRENT_SOURCE_DIR}/../../Tests/VrRefreshRateTest.c")
+target_include_directories(VrRefreshRateTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

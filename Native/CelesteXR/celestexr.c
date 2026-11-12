@@ -2,10 +2,12 @@
 #include <SDL3/SDL.h>
 #include "openxr/openxr.h"
 #include "vr_panel_pose.h"
+#include "vr_refresh_rate.h"
 #include <SDL3/SDL_openxr.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef _WIN32
 #define API __declspec(dllexport)
@@ -18,6 +20,26 @@ typedef struct { XrPosef aim, surface; int32_t valid, trigger; } CelestePointer;
 typedef struct { XrPosef left, right; int32_t leftValid, rightValid; float leftTrigger, rightTrigger; } CelesteHands;
 SDL_COMPILE_TIME_ASSERT(CelesteHandsSize, sizeof(CelesteHands) == 72);
 typedef struct { XrSwapchain handle; SDL_GPUTexture **images; uint32_t image; int acquired; XrExtent2Di size; } EyeSwap;
+
+/* Check before SDL creates the instance: OpenXR extensions must be enabled at creation. */
+API int CelesteXR_RefreshExtensionAvailable(void) {
+    if (!SDL_OpenXR_LoadLibrary()) return 0;
+    PFN_xrGetInstanceProcAddr get=(PFN_xrGetInstanceProcAddr)SDL_OpenXR_GetXrGetInstanceProcAddr();
+    PFN_xrEnumerateInstanceExtensionProperties enumerate=NULL;
+    uint32_t count=0; int found=0;
+    if (get && XR_SUCCEEDED(get(XR_NULL_HANDLE,"xrEnumerateInstanceExtensionProperties",(PFN_xrVoidFunction*)&enumerate)) && enumerate &&
+        XR_SUCCEEDED(enumerate(NULL,0,&count,NULL)) && count>0 && count<4096) {
+        XrExtensionProperties *extensions=(XrExtensionProperties*)SDL_calloc(count,sizeof(*extensions));
+        if (extensions) {
+            for(uint32_t i=0;i<count;i++) extensions[i].type=XR_TYPE_EXTENSION_PROPERTIES;
+            if (XR_SUCCEEDED(enumerate(NULL,count,&count,extensions)))
+                for(uint32_t i=0;i<count;i++) if(SDL_strcmp(extensions[i].extensionName,XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME)==0) { found=1; break; }
+            SDL_free(extensions);
+        }
+    }
+    SDL_OpenXR_UnloadLibrary();
+    return found;
+}
 typedef struct {
     SDL_GPUDevice *device; XrInstance instance; XrSystemId system; XrSession session; XrSpace space;
     PFN_xrGetInstanceProcAddr get;
@@ -39,6 +61,32 @@ typedef struct {
     char error[256]; int loggedFrame, flatLast; XrPosef flatPose;
     Uint64 rateStart; unsigned int submittedFrames; XrDuration displayPeriod;
 } Bridge;
+
+static void request_refresh_rate(Bridge *b) {
+    PFN_xrEnumerateDisplayRefreshRatesFB enumerate=NULL;
+    PFN_xrGetDisplayRefreshRateFB current=NULL;
+    PFN_xrRequestDisplayRefreshRateFB request=NULL;
+    if (XR_FAILED(b->get(b->instance,"xrEnumerateDisplayRefreshRatesFB",(PFN_xrVoidFunction*)&enumerate)) || !enumerate ||
+        XR_FAILED(b->get(b->instance,"xrGetDisplayRefreshRateFB",(PFN_xrVoidFunction*)&current)) || !current ||
+        XR_FAILED(b->get(b->instance,"xrRequestDisplayRefreshRateFB",(PFN_xrVoidFunction*)&request)) || !request) {
+        SDL_Log("CelesteXR refresh-rate control unavailable; using runtime setting"); return;
+    }
+    float active=0; uint32_t count=0;
+    if (XR_FAILED(current(b->session,&active))) active=0;
+    SDL_Log("CelesteXR current display refresh rate: %.1f Hz",active);
+    if (active>=89.5f) return; /* Never lower a user's 90/120 Hz runtime setting. */
+    if (XR_FAILED(enumerate(b->session,0,&count,NULL)) || !count || count>128) return;
+    float rates[128];
+    if (XR_FAILED(enumerate(b->session,count,&count,rates))) return;
+    for(uint32_t i=0;i<count;i++) {
+        SDL_Log("CelesteXR supported refresh rate: %.1f Hz",rates[i]);
+    }
+    float chosen=CelesteXR_ChooseRefreshRate(active,rates,count);
+    if (!chosen) { SDL_Log("CelesteXR: no supported rate of at least 90 Hz; keeping runtime setting"); return; }
+    XrResult result=request(b->session,chosen);
+    if (XR_FAILED(result)) SDL_Log("CelesteXR: %.1f Hz request failed (%d); keeping runtime setting",chosen,(int)result);
+    else SDL_Log("CelesteXR requested %.1f Hz; runtime decides the actual rate",chosen);
+}
 
 static void fail(Bridge *b, const char *name, XrResult result) { SDL_snprintf(b->error, sizeof(b->error), "%s failed (%d)", name, (int)result); }
 #define LOAD(field, name) do { if (XR_FAILED(b->get(b->instance, #name, (PFN_xrVoidFunction*)&b->field))) { fail(b,#name,-1); return 0; } } while(0)
@@ -193,6 +241,7 @@ API int CelesteXR_BeginFrame(Bridge *b, CelesteEye *out, int *render) {
             if(s==XR_SESSION_STATE_READY && !b->running) {
                 XrSessionBeginInfo info={XR_TYPE_SESSION_BEGIN_INFO}; info.primaryViewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                 r=b->beginSession(b->session,&info); if(XR_FAILED(r)){fail(b,"xrBeginSession",r);return -1;} b->running=1;
+                request_refresh_rate(b);
             } else if(s==XR_SESSION_STATE_STOPPING && b->running) { b->endSession(b->session); b->running=0; }
             else if(s==XR_SESSION_STATE_EXITING || s==XR_SESSION_STATE_LOSS_PENDING) { fail(b,"OpenXR session exited",-1);return -1; }
         } else if(e.type==XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {fail(b,"OpenXR instance lost",-1);return -1;}

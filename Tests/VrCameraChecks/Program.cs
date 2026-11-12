@@ -157,6 +157,23 @@ if (Vector3.Dot(Vector3.Normalize(new Vector3(frontView.Position.X, frontView.Po
     throw new Exception("Collection camera should be in front of the tracked gaze and aim back at the player.");
 Console.WriteLine("VR collection camera blending checks passed.");
 
+var cameraStart = new Vector3(0, 0, 10);
+var clearCollection = VrCamera.CollectionPosition(cameraStart, Vector3.Zero, Vector3.UnitY,
+    (_, _, distance) => distance);
+Near(clearCollection, new Vector3(0, 36, 8), "unobstructed collection camera");
+var alternateCollection = VrCamera.CollectionPosition(cameraStart, Vector3.Zero, Vector3.UnitY,
+    (_, direction, distance) => MathF.Abs(direction.X) < .1f && direction.Y > 0 ? 5 : distance);
+if (MathF.Abs(alternateCollection.X) < 10 || Vector3.Distance(alternateCollection, cameraStart) < 30)
+    throw new Exception("Collection camera should choose an open direction when the preferred path is blocked.");
+var enclosedCollection = VrCamera.CollectionPosition(cameraStart, Vector3.Zero, Vector3.UnitY,
+    (_, _, _) => 6);
+if (Vector3.Distance(enclosedCollection, cameraStart) > 4.01f)
+    throw new Exception("Collection camera must stop before nearby obstacles even when every path is blocked.");
+var shiftedView = VrCamera.CollectionView(collectionFirst, Vector3.Zero, gaze, alternateCollection);
+if (Vector3.Dot(TrackedEye(shiftedView).Forward, Vector3.Normalize(new Vector3(0, 0, 8) - shiftedView.Position)) < .999f)
+    throw new Exception("An alternate collection view must still aim the tracked gaze at the player.");
+Console.WriteLine("VR collection camera obstruction and alternate-view checks passed.");
+
 var ledge = new Vector3(0, 0, 10);
 if (!VrLedgeGeometry.HasFootSupport(ledge, Vector3.UnitZ, point => new Vector3(point.X, point.Y, 10)))
     throw new Exception("A broad flat ledge should support a mantle.");

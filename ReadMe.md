@@ -9,12 +9,13 @@ The VR work includes:
 - First-person VR with tracked hands and hand-based climbing, including hand collision and climbing momentum.
 - An earlier third-person VR prototype, plus VR camera and room-scale adjustments.
 - VR-friendly menus, control guides, and a desktop mirror for viewing or streaming.
+- A ledge landing indicator and wrist displays for strawberry and death totals.
 - Support for Quest-style controllers and gamepad controls, with configurable VR options.
 - Custom VR title artwork and an OpenXR bridge for headset rendering.
 
 ### Download for Windows
 
-Download `Celeste64VR-Windows-x64.zip` from the [experimental release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.1.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
+Download `Celeste64VR-Windows-x64.zip` from the [experimental release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
 
 ### Build the VR version from source on Windows
 
@@ -31,15 +32,15 @@ The build is written to `Artifacts\CelesteVR`.
 ### Playing with SteamVR
 
 1. Connect your PC VR headset and controllers to your Windows PC and start SteamVR. Make sure SteamVR is configured as your active OpenXR runtime.
-2. Run `Start Celeste VR.exe` from `Artifacts\CelesteVR`. The launcher enables VR and looks for SteamVR's OpenXR loader in the standard Steam installation folder.
+2. Run `Start Celeste VR.exe` from the extracted download (or from `Artifacts\CelesteVR` if you built from source). The launcher enables VR and looks for SteamVR's OpenXR loader in the standard Steam installation folder.
 3. In the game's VR controls menu, set **View** to **First Person** to try the experimental mode. Third person is the default.
-4. In first person, reach toward a climbable surface, hold a controller trigger, and pull with your hand to climb. An optional stick-climbing setting is also available in the VR controls menu. The in-game guide shows the controller bindings.
+4. In first person, reach toward a climbable surface, hold a controller trigger, and pull with your hand to climb. A turquoise ring marks a valid spot to climb onto: put a hand over the ledge and press its trigger to pull yourself up. If you are already holding that trigger, release it and press again. An optional stick-climbing setting is also available in the VR controls menu. The in-game guide shows the controller bindings.
 
 The desktop window mirrors gameplay for viewing or streaming. If the game does not start, `Start-VR.cmd` is also included and writes diagnostic output to `CelesteVR.log`.
 
 ### Updates
 
-First-person mode with hand climbing is available experimentally on this branch. More updates are to come as the VR adaptation develops.
+Version 0.2 adds the ledge landing indicator, strawberry and death wrist counters, improved collection camera positioning, and performance improvements. First-person mode remains experimental. More updates are to come.
 
 The original project information and license follow below.
 
