@@ -1,6 +1,6 @@
 # Celeste 64 VR
 
-## Celeste VR (experimental fan project)
+## Celeste VR (fan project)
 
 This branch is an unofficial VR adaptation of Celeste 64, based on the [original game](https://github.com/EXOK/Celeste64). It is a work in progress and is not made or endorsed by the Celeste team.
 
@@ -15,7 +15,7 @@ The VR work includes:
 
 ### Download for Windows
 
-Download `Celeste64VR-v0.2.0-Windows-x64.zip` from the [experimental release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
+Download `Celeste64VR-v0.2.0-Windows-x64.zip` from the [release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
 
 ### Build the VR version from source on Windows
 
