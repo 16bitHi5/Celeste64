@@ -15,7 +15,7 @@ The VR work includes:
 
 ### Download for Windows
 
-Download `Celeste64VR-Windows-x64.zip` from the [experimental release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
+Download `Celeste64VR-v0.2.0-Windows-x64.zip` from the [experimental release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
 
 ### Build the VR version from source on Windows
 
