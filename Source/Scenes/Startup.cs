@@ -76,9 +76,9 @@ public class Startup : Scene
 		Game.Goto(new Transition()
 		{
 			Mode = Transition.Modes.Replace,
-			Scene = () => new StartupSplash(),
+			Scene = () => new Titlescreen(),
 			ToBlack = null,
-			FromBlack = null,
+			FromBlack = new AngledWipe(),
 		});
 	}
 
