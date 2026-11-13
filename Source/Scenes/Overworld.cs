@@ -73,6 +73,24 @@ public class Overworld : Scene
 				batch.PushMatrix(Matrix3x2.CreateScale(2.0f) * Matrix3x2.CreateTranslation(bounds.BottomLeft + new Vec2(Padding, -Padding)));
 				UI.Text(batch, Loc.Str($"Level.{Level.ID}.Name"), Vec2.Zero, new Vec2(0, 1), Color.White);
 				batch.PopMatrix();
+
+				if (Game.Instance.IsVr)
+				{
+					// Keep the credits in the corners and above the level name.
+					var fmod = Assets.Textures["Branding/FMOD"];
+					float fmodScale = Math.Min(64f / fmod.Width, 20f / fmod.Height) * Game.RelativeScale;
+					var fmodPosition = bounds.TopRight + new Vec2(-Padding, Padding);
+					batch.Image(fmod, fmodPosition, new Vec2(fmod.Width, 0), Vec2.One * fmodScale, 0, Color.White);
+
+					float creditBottom = bounds.Bottom - Padding - font.LineHeight * 2 - 8 * Game.RelativeScale;
+					var mark = Assets.Textures["Branding/Subpixel"];
+					float markSize = 24 * Game.RelativeScale;
+					var creditPosition = new Vec2(bounds.Left + Padding, creditBottom - markSize);
+					batch.Image(mark, creditPosition, Vec2.Zero, Vec2.One * (markSize / mark.Width), 0, Color.White);
+					batch.PushMatrix(Matrix3x2.CreateScale(.55f) * Matrix3x2.CreateTranslation(creditPosition + new Vec2(markSize + 4 * Game.RelativeScale, markSize * .5f)));
+					UI.Text(batch, "VR mod by Mark Matta", Vec2.Zero, new Vec2(0, .5f), Color.White);
+					batch.PopMatrix();
+				}
 			}
 			else
 			{
@@ -501,8 +519,6 @@ public class Overworld : Scene
 				at.X -= width + 8 * Game.RelativeScale;
 				UI.Prompt(batch, Controls.GetPrompt(Controls.Confirm), Loc.Str("confirm"), at, out _, 1.0f);
 
-				// show version number on Overworld as well
-                UI.Text(batch, Game.VersionString, bounds.BottomLeft + new Vec2(4, -4) * Game.RelativeScale, new Vec2(0, 1), Color.White * 0.25f);
             }
 
 			if (cameraCloseUpEase > 0)

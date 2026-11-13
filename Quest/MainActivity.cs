@@ -23,7 +23,7 @@ public class MainActivity : Org.Libsdl.App.SDLActivity
             string root = FilesDir!.AbsolutePath;
             string content = Path.Combine(root, "Content");
             // Refresh packaged assets when an update adds or changes content.
-            string contentMarker = Path.Combine(root, "content-extracted-v3");
+            string contentMarker = Path.Combine(root, "content-extracted-v4");
             if (!File.Exists(contentMarker))
             {
                 using var archive = Assets!.Open("content.zip");

@@ -89,6 +89,13 @@ public class Titlescreen : Scene
 		}
 	}
 
+	private void DrawFanNotice(Rect bounds)
+	{
+		UI.Text(batch, "Fan Made VR Mod", bounds.BottomLeft + new Vec2(4, -40) * Game.RelativeScale, new Vec2(0, 1), Color.White * 0.75f);
+		UI.Text(batch, "Based on the works of the", bounds.BottomLeft + new Vec2(4, -22) * Game.RelativeScale, new Vec2(0, 1), Color.White * 0.75f);
+		UI.Text(batch, "original Celeste 64 team", bounds.BottomLeft + new Vec2(4, -4) * Game.RelativeScale, new Vec2(0, 1), Color.White * 0.75f);
+	}
+
 	internal void RenderVrUi(Target target)
 	{
 		target.Clear(Color.Transparent);
@@ -101,7 +108,7 @@ public class Titlescreen : Scene
 		UI.Prompt(batch, cancelPrompt, Loc.Str("Exit"), at, out var width, 1.0f);
 		at.X -= width + 8 * Game.RelativeScale;
 		UI.Prompt(batch, confirmPrompt, Loc.Str("Confirm"), at, out _, 1.0f);
-		UI.Text(batch, Game.VersionString, bounds.BottomLeft + new Vec2(4, -4) * Game.RelativeScale, new Vec2(0, 1), Color.White * 0.25f);
+		DrawFanNotice(bounds);
 		batch.Render(target);
 		batch.Clear();
 	}
@@ -136,7 +143,7 @@ public class Titlescreen : Scene
 				UI.Prompt(batch, Controls.GetPrompt(Controls.Cancel), Loc.Str("Exit"), at, out var width, 1.0f);
 				at.X -= width + 8 * Game.RelativeScale;
 				UI.Prompt(batch, Controls.GetPrompt(Controls.Confirm), Loc.Str("Confirm"), at, out _, 1.0f);
-				UI.Text(batch, Game.VersionString, bounds.BottomLeft + new Vec2(4, -4) * Game.RelativeScale, new Vec2(0, 1), Color.White * 0.25f);
+				DrawFanNotice(bounds);
 			}
 
 			if (easing < 1)

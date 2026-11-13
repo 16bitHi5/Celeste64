@@ -6,7 +6,10 @@
     <ApplicationId>com.subpixel.celeste64vr.quest</ApplicationId>
     <ApplicationTitle>Celeste 64 VR - Quest</ApplicationTitle>
     <ApplicationVersion>1</ApplicationVersion>
-    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <ApplicationDisplayVersion>0.2.0</ApplicationDisplayVersion>
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
     <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
