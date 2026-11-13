@@ -47,6 +47,9 @@ public static class Audio
 
 	private static void LoadDynamicLibraries()
 	{
+		// Android's native libraries are packaged with the app and loaded by name.
+		if (OperatingSystem.IsAndroid())
+			return;
 		if (isResolverSet)
 			return;
 		isResolverSet = true;
@@ -313,7 +316,11 @@ public static class Audio
 	}
 
 	internal static void Check(FMOD.RESULT result)
-		=> Debug.Assert(result == FMOD.RESULT.OK, $"FMOD Failed: {result}");
+	{
+		if (OperatingSystem.IsAndroid() && result != FMOD.RESULT.OK)
+			throw new InvalidOperationException($"FMOD failed: {result}");
+		Debug.Assert(result == FMOD.RESULT.OK, $"FMOD Failed: {result}");
+	}
 }
 
 public static class AudioUtil

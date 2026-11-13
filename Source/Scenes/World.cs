@@ -148,7 +148,7 @@ public class World : Scene
 				vrControls.Add(new Menu.Toggle("QUEST TOUCH", Game.Instance.ToggleQuestControls, () => Game.Instance.QuestControlsEnabled));
 				pauseMenu.Add(new Menu.Submenu("VR Controls", pauseMenu, vrControls));
 				Menu vrGraphics = new(Controls) { Title = () => "VR GRAPHICS" };
-				vrGraphics.Add(new Menu.MultiSelect("Resolution", ["Retro", "Clear"],
+				vrGraphics.Add(new Menu.CycleSelect("Resolution", ["Retro", "Clear"],
 					() => Save.Instance.VrClearGraphics ? 1 : 0,
 					index => { Save.Instance.VrClearGraphics = index == 1; Save.Instance.SaveToFile(Game.UserPath); }));
 				vrGraphics.Add(new Menu.Info("Clear: sharper world rendering"));

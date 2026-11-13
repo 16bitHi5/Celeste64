@@ -26,7 +26,7 @@ class Program
 		{
 			using var game = new Game(new(
 				ApplicationName: Game.GamePath,
-				WindowTitle: Game.GameTitle,
+				WindowTitle: OperatingSystem.IsAndroid() ? "Celeste 64 VR - Quest" : "Celeste 64 VR - Windows",
 				Width: 1280,
 				Height: 720,
 				Fullscreen: false,

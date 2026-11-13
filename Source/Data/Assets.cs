@@ -16,6 +16,8 @@ public static partial class Assets
 	{
 		get
 		{
+			if (Environment.GetEnvironmentVariable("CELESTE64_CONTENT_PATH") is { Length: > 0 } overridePath)
+				return overridePath;
 			if (contentPath == null)
 			{
 				var baseFolder = AppContext.BaseDirectory;

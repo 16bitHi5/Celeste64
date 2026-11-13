@@ -13,9 +13,13 @@ The VR work includes:
 - Support for Quest-style controllers and gamepad controls, with configurable VR options.
 - Custom VR title artwork and an OpenXR bridge for headset rendering.
 
+### Download for Quest 3
+
+Download `Celeste-64-VR-Quest.apk` from the [release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr) and sideload it onto a Quest 3 using SideQuest, Meta Quest Developer Hub, or ADB. Developer Mode must be enabled for sideloading. Once installed, start **Celeste 64 VR - Quest** from Unknown Sources in the headset's app library. The game runs on the headset without a PC connection.
+
 ### Download for Windows
 
-Download `Celeste64VR-v0.2.0-Windows-x64.zip` from the [release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr), extract the entire ZIP, and run `Start Celeste VR.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
+Download `Celeste-64-VR-Windows.zip` from the [release](https://github.com/16bitHi5/Celeste64/releases/tag/v0.2.0-vr), extract the entire ZIP, and run `Celeste 64 VR - Windows.exe`. The download includes the .NET runtime; you do not need to build the game or install the .NET SDK. A PC VR headset and SteamVR are required. See the SteamVR instructions below.
 
 ### Build the VR version from source on Windows
 
@@ -27,13 +31,23 @@ Check out the `first-person-vr` branch, then run from PowerShell in the reposito
 .\Build-VR.ps1
 ```
 
-The build is written to `Artifacts\CelesteVR`.
+The build is written to `Artifacts\Celeste 64 VR - Windows`.
+
+### Build for Quest 3
+
+Install the .NET 10 Android workload, Android SDK and NDK, Java, CMake, and Ninja. Download the FMOD Engine 2.02 Android SDK separately from FMOD and extract it. Run:
+
+```powershell
+.\Build-Quest.ps1 -FmodAndroidSdk 'C:\path\to\fmodstudioapi20224android'
+```
+
+The signed APK is written to `Artifacts\Quest\Celeste 64 VR - Quest.apk`. The build script uses the Android debug signing key by default; keep a secure backup of the signing key if you intend to distribute updates to the same installation.
 
 ### Playing with SteamVR
 
 1. Connect your PC VR headset and controllers to your Windows PC and start SteamVR. Make sure SteamVR is configured as your active OpenXR runtime.
-2. Run `Start Celeste VR.exe` from the extracted download (or from `Artifacts\CelesteVR` if you built from source). The launcher enables VR and looks for SteamVR's OpenXR loader in the standard Steam installation folder.
-3. In the game's VR controls menu, set **View** to **First Person** to try the experimental mode. Third person is the default.
+2. Run `Celeste 64 VR - Windows.exe`. The launcher enables VR and looks for SteamVR's OpenXR loader in the standard Steam installation folder.
+3. In the game's VR controls menu, set **View** to **First Person** to play in first person. Third person is the default.
 4. In first person, reach toward a climbable surface, hold a controller trigger, and pull with your hand to climb. A turquoise ring marks a valid spot to climb onto: put a hand over the ledge and press its trigger to pull yourself up. If you are already holding that trigger, release it and press again. An optional stick-climbing setting is also available in the VR controls menu. The in-game guide shows the controller bindings.
 
 The desktop window mirrors gameplay for viewing or streaming. If the game does not start, `Start-VR.cmd` is also included and writes diagnostic output to `CelesteVR.log`.
@@ -47,7 +61,7 @@ The desktop window mirrors gameplay for viewing or streaming. If the game does n
 - Improved the first-person collection camera to look for a clearer view, and turned Madeline toward the camera during strawberry celebrations.
 - Added optimized builds, preloaded sound effects, and support for requesting a higher headset refresh rate when available. Actual performance and refresh rate depend on the headset, runtime, and PC.
 
-First-person mode remains experimental. More updates are to come.
+More updates are to come.
 
 The original project information and license follow below.
 
@@ -65,6 +79,7 @@ You can find prebuilt version of the game on [itch.io](https://maddymakesgamesin
  - [SledgeFormats](https://github.com/LogicAndTrick/sledge-formats): Parsing TrenchBroom level formats
  - [SharpGLTF](https://github.com/vpenades/SharpGLTF): Parsing and Animating glTF2 models
  - [FMOD](https://www.fmod.com): For Music and Sound Effects
+ - FMOD logo: Firelight Technologies Pty Ltd, from the [official FMOD logo package](https://www.fmod.com/attribution).
 
 ### Tools Used
  - [TrenchBroom](https://trenchbroom.github.io/): For Level Editing

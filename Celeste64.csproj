@@ -21,6 +21,7 @@
   <ItemGroup>
     <Compile Remove="Vendor/**" />
     <Compile Remove="Tests/**" />
+    <Compile Remove="Quest/**" />
     <EmbeddedResource Remove="Vendor/**" />
     <None Remove="Vendor/**" />
   </ItemGroup>

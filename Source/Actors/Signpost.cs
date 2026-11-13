@@ -26,6 +26,9 @@ public class Signpost : NPC, IHaveModels
 		yield return Co.Run(cs.Face(World.Get<Player>(), Position));
 		yield return Co.Run(cs.Say(Loc.Lines(Conversation)));
 		if (Game.Instance.IsVr && Conversation.Equals("CreditsSign", StringComparison.OrdinalIgnoreCase))
+		{
 			yield return Co.Run(cs.Say("signpost", "VR mod by Mark Matta"));
+			yield return Co.Run(cs.Say("signpost", "Audio Engine: FMOD Studio by\nFirelight Technologies Pty Ltd."));
+		}
 	}
 }

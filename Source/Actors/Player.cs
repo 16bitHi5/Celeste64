@@ -1183,7 +1183,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 		if (TryStartVrMantle()) return;
 
 		bool stickClimb = Game.Instance.IsVr && Save.Instance.VrFirstPerson && Save.Instance.VrFirstPersonStickClimb;
-		// Tracked hand grabs are exclusive to the experimental first-person view.
+		// Tracked hand grabs are exclusive to the first-person view.
 		if (!stickClimb && tClimbCooldown <= 0 && TryStartVrHandClimb())
 		{
 			vrHandClimbing = true;
@@ -2615,7 +2615,7 @@ public class Player : Actor, IHaveModels, IHaveSprites, IRidePlatforms, ICastPoi
 	public void CollectModels(List<(Actor Actor, Model Model)> populate)
 	{
 		// The third-person mesh includes the head and hair; keep it out of the
-		// experimental eye-level view until tracked first-person hands are ready.
+		// eye-level view until tracked first-person hands are ready.
 		if (World.VrFirstPersonRendering)
 			return;
 		if ((World.Camera.Position - (Position + Vec3.UnitZ * 8)).LengthSquared() > World.Camera.NearPlane * World.Camera.NearPlane)

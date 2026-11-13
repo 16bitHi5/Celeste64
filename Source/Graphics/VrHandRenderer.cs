@@ -1,6 +1,6 @@
 namespace Celeste64;
 
-/// <summary>Experimental tracked hands using the original player's hand polygons.</summary>
+/// <summary>Tracked hands using the original player's hand polygons.</summary>
 internal sealed class VrHandRenderer : IDisposable
 {
 	private readonly SimpleModel left;

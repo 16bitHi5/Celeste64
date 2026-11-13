@@ -449,9 +449,10 @@ public class Game : App
 			if (!shouldRender) { FirstPersonHands = default; FirstPersonHandAnchor = null; return false; }
 			var eyes = xr.Eyes;
 			var (renderWidth, renderHeight) = VrGraphics.RenderSize(Save.Instance.VrClearGraphics,
-				Math.Max(eyes[0].Width, eyes[1].Width), Math.Max(eyes[0].Height, eyes[1].Height));
+				Math.Max(eyes[0].Width, eyes[1].Width), Math.Max(eyes[0].Height, eyes[1].Height), OperatingSystem.IsAndroid());
 			if (xrTargets == null || xrTargets[0].Width != renderWidth || xrTargets[0].Height != renderHeight)
 			{
+				Log.Info($"VR rendering: {(Save.Instance.VrClearGraphics ? "Clear" : "Retro")} {renderWidth}x{renderHeight} per eye, headset {eyes[0].Width}x{eyes[0].Height}");
 				if (xrTargets != null)
 					foreach (var oldTarget in xrTargets) oldTarget.Dispose();
 				xrTargets = [new Target(GraphicsDevice, renderWidth, renderHeight, [TextureFormat.Color, TextureFormat.Depth16]),

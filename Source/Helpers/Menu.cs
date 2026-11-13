@@ -128,6 +128,12 @@ public class Menu(Controls controls)
 		public void Cycle() => Slide(get() < options.Count - 1 ? 1 : -1);
 	}
 
+	public class CycleSelect(string label, List<string> options, Func<int> get, Action<int> set)
+		: MultiSelect(label, options, get, set)
+	{
+		public override bool Pressed() { Cycle(); return true; }
+	}
+
 	public class MultiSelect<T> : MultiSelect where T : struct, Enum
 	{
 		private static List<string> GetEnumOptions()

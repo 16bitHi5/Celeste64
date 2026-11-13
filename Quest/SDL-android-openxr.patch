@@ -1,0 +1,45 @@
+diff --git a/src/gpu/vulkan/SDL_gpu_vulkan.c b/src/gpu/vulkan/SDL_gpu_vulkan.c
+index 53212a2..ee39af1 100644
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -12932,14 +12932,40 @@ static bool VULKAN_PrepareDriver(SDL_VideoDevice *_this, SDL_PropertiesID props)
+         }
+ 
+         const char *extensionName = gpuExtension.extensionName;
++#ifdef SDL_PLATFORM_ANDROID
++        /* Celeste VR Android: the Vulkan capability probe also needs the
++         * Android instance extension and Java context, just like the real instance. */
++        const char *androidExtensions[] = { extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
++        JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
++        JavaVM *vm = NULL;
++        if (!env || (*env)->GetJavaVM(env, &vm) != 0) {
++            SDL_SetError("OpenXR: Android Java VM unavailable");
++            SDL_Vulkan_UnloadLibrary();
++            SDL_OpenXR_UnloadLibrary();
++            return false;
++        }
++        XrInstanceCreateInfoAndroidKHR androidInfo = {
++            .type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR,
++            .applicationVM = vm,
++            .applicationActivity = SDL_GetAndroidActivity(),
++        };
++#endif
+         if ((xrResult = xrCreateInstance(&(XrInstanceCreateInfo){
+                  .type = XR_TYPE_INSTANCE_CREATE_INFO,
++#ifdef SDL_PLATFORM_ANDROID
++                 .next = &androidInfo,
++#endif
+                  .applicationInfo = {
+                      .apiVersion = SDL_GetNumberProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_VERSION_NUMBER, XR_API_VERSION_1_0),
+                      .applicationName = "SDL",
+                  },
++#ifdef SDL_PLATFORM_ANDROID
++                 .enabledExtensionCount = 2,
++                 .enabledExtensionNames = androidExtensions,
++#else
+                  .enabledExtensionCount = 1,
+                  .enabledExtensionNames = &extensionName,
++#endif
+              },
+                  &xrInstance)) != XR_SUCCESS) {
+             SDL_LogDebug(SDL_LOG_CATEGORY_GPU, "Failed to create OpenXR instance");

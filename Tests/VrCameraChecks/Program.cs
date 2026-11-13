@@ -100,6 +100,8 @@ Console.WriteLine("Degenerate camera and audio listener checks passed.");
 
 if (VrGraphics.RenderSize(false, 2528, 2704) != (1024, 1024) ||
     VrGraphics.RenderSize(true, 2528, 2704) != (1644, 1758) ||
+    VrGraphics.RenderSize(true, 1680, 1760, true) != (1680, 1760) ||
+    VrGraphics.RenderSize(false, 1680, 1760, true) != (1024, 1024) ||
     VrGraphics.RenderSize(true, 10000, 10000) != (2048, 2048) ||
     VrGraphics.RenderSize(true, 0, 0) != (1024, 1024))
     throw new Exception("VR quality render sizes were not selected correctly.");

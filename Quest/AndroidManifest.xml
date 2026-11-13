@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="34" />
+  <uses-feature android:name="android.hardware.vr.headtracking" android:required="true" android:version="1" />
+  <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+  <uses-feature android:name="android.hardware.faketouch" android:required="false" />
+  <application android:label="Celeste 64 VR - Quest" android:allowBackup="false">
+    <meta-data android:name="com.oculus.supportedDevices" android:value="quest3|quest3s" />
+  </application>
+</manifest>

@@ -6,7 +6,7 @@
 `Content/Models` and `Content/Models/Sources`.
 
 The exported character has a `Hands` mesh and separate left/right arm bones;
-the hands are currently combined into one skinned mesh. The experimental VR
+the hands are currently combined into one skinned mesh. The VR
 renderer separates the existing mesh into left and right pieces and attaches
 them to controller grip poses. The copied Blender file can be edited independently;
 changes to it are not automatically imported into the game.

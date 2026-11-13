@@ -95,9 +95,12 @@ public class Titlescreen : Scene
 		if (inputDelay > 0) return;
 		var bounds = new Rect(0, 0, target.Width, target.Height);
 		var at = bounds.BottomRight + new Vec2(-16, -4) * Game.RelativeScale + new Vec2(0, -UI.PromptSize);
-		UI.Prompt(batch, Controls.GetPrompt(Controls.Cancel), Loc.Str("Exit"), at, out var width, 1.0f);
+		// Quest Touch uses A and B, even before the first controller input.
+		var cancelPrompt = OperatingSystem.IsAndroid() ? Assets.Subtextures["Controls/Xbox Series/cancel"] : Controls.GetPrompt(Controls.Cancel);
+		var confirmPrompt = OperatingSystem.IsAndroid() ? Assets.Subtextures["Controls/Xbox Series/confirm"] : Controls.GetPrompt(Controls.Confirm);
+		UI.Prompt(batch, cancelPrompt, Loc.Str("Exit"), at, out var width, 1.0f);
 		at.X -= width + 8 * Game.RelativeScale;
-		UI.Prompt(batch, Controls.GetPrompt(Controls.Confirm), Loc.Str("Confirm"), at, out _, 1.0f);
+		UI.Prompt(batch, confirmPrompt, Loc.Str("Confirm"), at, out _, 1.0f);
 		UI.Text(batch, Game.VersionString, bounds.BottomLeft + new Vec2(4, -4) * Game.RelativeScale, new Vec2(0, 1), Color.White * 0.25f);
 		batch.Render(target);
 		batch.Clear();

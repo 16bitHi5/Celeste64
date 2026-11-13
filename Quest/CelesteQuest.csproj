@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <SupportedOSPlatformVersion>29</SupportedOSPlatformVersion>
+    <ApplicationId>com.subpixel.celeste64vr.quest</ApplicationId>
+    <ApplicationTitle>Celeste 64 VR - Quest</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <AndroidManifest>AndroidManifest.xml</AndroidManifest>
+    <UseMonoRuntime>false</UseMonoRuntime>
+    <DebugType>none</DebugType>
+    <AndroidManagedSymbols>false</AndroidManagedSymbols>
+    <AndroidLinkMode>None</AndroidLinkMode>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(FmodAndroidSdk)' != ''">
+    <DefineConstants>$(DefineConstants);QUEST_FMOD</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <AndroidLibrary Remove="SDLBridge/**" />
+    <ProjectReference Include="../Vendor/Foster/Framework/Foster.Framework.csproj" />
+    <PackageReference Include="SharpGLTF.Runtime" Version="1.0.5" />
+    <PackageReference Include="Sledge.Formats.Map" Version="1.2.8" />
+    <Compile Include="../Source/**/*.cs" Exclude="../Source/Audio/Audio.cs;../Source/Audio/AudioHandle.cs" />
+    <Compile Include="MainActivity.cs" />
+    <Compile Include="SilentAudio.cs" Condition="'$(FmodAndroidSdk)' == ''" />
+    <Compile Include="../Source/Audio/Audio.cs;../Source/Audio/AudioHandle.cs" Condition="'$(FmodAndroidSdk)' != ''" />
+    <AndroidNativeLibrary Include="$(QuestBuildInputs)/libSDL3.so" Abi="arm64-v8a" />
+    <AndroidNativeLibrary Include="$(QuestBuildInputs)/libCelesteXR.so" Abi="arm64-v8a" />
+    <AndroidLibrary Include="$(QuestBuildInputs)/openxr.aar" Bind="false" />
+    <AndroidLibrary Include="$(QuestBuildInputs)/SDLBridge.jar" />
+    <TransformFile Include="SDLBridge/Metadata.xml" />
+    <AndroidAsset Include="$(QuestBuildInputs)/content.zip" LogicalName="content.zip" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(FmodAndroidSdk)' != ''">
+    <AndroidLibrary Include="$(FmodAndroidSdk)/api/core/lib/fmod.jar" />
+    <AndroidNativeLibrary Include="$(FmodAndroidSdk)/api/core/lib/arm64-v8a/libfmod.so" Abi="arm64-v8a" />
+    <AndroidNativeLibrary Include="$(FmodAndroidSdk)/api/studio/lib/arm64-v8a/libfmodstudio.so" Abi="arm64-v8a" />
+  </ItemGroup>
+</Project>
